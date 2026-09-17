@@ -138,12 +138,8 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
     plan = ordered_plan([c for c in all_cases if c['sheet'] in selected], selected, entries)
     emit('run', {'folder': str(folder), 'total': len(plan)})
     fatal = None
+    appium_ready = False
     try:
-        # 工作台不再依赖用户先手动点击“启动 Appium”。服务不可用时在执行前失败，
-        # 避免每条用例分别报连接拒绝而掩盖真正原因。
-        from .service import start as start_appium
-        emit('service', '正在检查 Appium 服务…')
-        start_appium(root)
         for index, case in enumerate(plan):
             if stop.is_set():
                 break
@@ -168,6 +164,14 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                 elif item.get('manual'):
                     status, detail = 'BLOCKED', '本版无人值守执行不支持所需实体动作。'
                 else:
+                    # 仅在第一条实际 UI 用例前检查服务。未实现、阻塞和筛选掉的用例
+                    # 不应因为临时环境没有 Appium 配置而改变其结果。
+                    if not appium_ready:
+                        if (root / 'configs' / 'environment.json').is_file():
+                            from .service import start as start_appium
+                            emit('service', '正在检查 Appium 服务…')
+                            start_appium(root)
+                        appium_ready = True
                     connection.execute('UPDATE results SET status=? WHERE sheet=? AND id=?', ('RUNNING', *key))
                     connection.commit()
                     emit('case_start', case)

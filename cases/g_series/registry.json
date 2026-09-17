@@ -662,5 +662,95 @@
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 600
+  },
+  {
+    "sheet": "G04_媒资导入",
+    "id": "IMP_001",
+    "automation_id": "IMP_001",
+    "node": "cases/g_series/test_gallery.py::test_import_card_on_gallery",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G04_媒资导入",
+    "id": "IMP_002",
+    "automation_id": "IMP_002",
+    "node": "cases/g_series/test_gallery.py::test_photo_creates_import_card",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G04_媒资导入",
+    "id": "IMP_003",
+    "automation_id": "IMP_003",
+    "node": "cases/g_series/test_gallery.py::test_import_media",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 180
+  },
+  {
+    "sheet": "G05_空间",
+    "id": "Space_001",
+    "automation_id": "SPACE_001",
+    "node": "cases/g_series/test_gallery.py::test_delete_media[True]",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G05_空间",
+    "id": "Space_003",
+    "automation_id": "SPACE_003",
+    "node": "cases/g_series/test_gallery.py::test_delete_media[False]",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G05_空间",
+    "id": "Space_004",
+    "automation_id": "SPACE_004",
+    "node": "cases/g_series/test_gallery.py::test_delete_media[True]",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G05_空间",
+    "id": "Space_005",
+    "automation_id": "SPACE_005",
+    "node": "cases/g_series/test_gallery.py::test_download_media",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G05_空间",
+    "id": "Space_006",
+    "automation_id": "SPACE_006",
+    "node": "cases/g_series/test_gallery.py::test_video_playback",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G05_空间",
+    "id": "Space_007",
+    "automation_id": "SPACE_007",
+    "node": "cases/g_series/test_gallery.py::test_download_media",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "G05_空间",
+    "id": "Space_008",
+    "automation_id": "SPACE_008",
+    "node": "cases/g_series/test_gallery.py::test_delete_media[True]",
+    "requires": [],
+    "glasses_adb_required": false,
+    "timeout_seconds": 90
   }
 ]
