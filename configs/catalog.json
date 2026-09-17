@@ -1,0 +1,201 @@
+{
+  "common": {
+    "package": "com.dpvr.android.app.Occident",
+    "activity": "com.dpvr.android.appguide.activity.SplashActivity",
+    "locale": "en",
+    "appium_url": "http://127.0.0.1:4723",
+    "capabilities": {
+      "photo": null,
+      "video": null,
+      "voice": null,
+      "translation": null,
+      "firmware": null
+    },
+    "elements": {
+      "my.about": {
+        "by": "xpath",
+        "value": "//*[@resource-id='com.dpvr.android.app.Occident:id/title' and @text='About App']"
+      },
+      "pair.add": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/btn_empty_add_device"
+      },
+      "pair.models_title": {
+        "by": "xpath",
+        "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Select Your Glasses\"]"
+      },
+      "pair.models_scroll": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/scrollContent"
+      },
+      "pair.prepare_title": {
+        "by": "xpath",
+        "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Pairing Ready\"]"
+      },
+      "pair.next": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/btn_next"
+      },
+      "pair.searching": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/tv_searching"
+      },
+      "pair.results": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/tv_check_reasons"
+      },
+      "pair.tutorial_title": {
+        "by": "xpath",
+        "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Explore Glasses\"]"
+      },
+      "pair.tutorial_begin": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/btnBegin"
+      },
+      "pair.skip": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/tvSkip"
+      },
+      "pair.skip_title": {
+        "by": "xpath",
+        "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Skip guidance?\"]"
+      },
+      "pair.skip_confirm": {
+        "by": "xpath",
+        "value": "//*[@resource-id=\"com.dpvr.android.app.Occident:id/tv_confirm\" and @text=\"Yes, skip it\"]"
+      },
+      "pair.home_title": {
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/devices_title"
+      }
+    },
+    "pairing": {
+      "model_label_id": "com.dpvr.android.app.Occident:id/tvDeviceName",
+      "device_name_id": "com.dpvr.android.app.Occident:id/tv_device_name",
+      "max_scrolls": 12,
+      "search_timeout": 45,
+      "bind_timeout": 65,
+      "tutorial_activity": "com.dpvr.android.appguide.activity.TutorialActivity",
+      "require_pairing_prompt": true,
+      "late_popup_timeout": 60,
+      "optional_observation_seconds": 30,
+      "skip_tutorial": false,
+      "home_activity": "com.dpvr.android.home.HomeActivity"
+    },
+    "popup_rules": [
+      {
+        "name": "bluetooth_pair",
+        "packages": [
+          "com.android.settings",
+          "com.android.bluetooth",
+          "android"
+        ],
+        "titles": [
+          "Bluetooth pairing request",
+          "蓝牙配对请求"
+        ],
+        "confirm_texts": [
+          "Pair",
+          "配对"
+        ],
+        "action": {
+          "by": "xpath",
+          "value": "//*[@resource-id=\"android:id/button1\" and (@text=\"Pair\" or @text=\"配对\") and (@package=\"com.android.settings\" or @package=\"com.android.bluetooth\" or @package=\"android\")]"
+        }
+      },
+      {
+        "name": "app_update",
+        "packages": [
+          "com.dpvr.android.app.Occident"
+        ],
+        "titles": [
+          "New Update"
+        ],
+        "confirm_texts": [
+          "Update"
+        ],
+        "action": {
+          "by": "xpath",
+          "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Cancel\"]"
+        }
+      },
+      {
+        "name": "firmware_update",
+        "packages": [
+          "com.dpvr.android.app.Occident"
+        ],
+        "titles": [
+          "Firmware Update"
+        ],
+        "confirm_texts": [
+          "Update Now"
+        ],
+        "action": {
+          "by": "xpath",
+          "value": "//*[@resource-id=\"com.dpvr.android.app.Occident:id/tv_cancel\" and @text=\"Cancel\"]"
+        }
+      }
+    ]
+  },
+  "products": {
+    "待归类设备": {
+      "models": {
+        "Vision Ray 1（系统型号，业务归属待确认）": {
+          "configured": false
+        }
+      }
+    },
+    "产品 A（待配置）": {
+      "models": {
+        "型号 A1（待配置）": {
+          "configured": false
+        }
+      }
+    },
+    "产品 B（待配置）": {
+      "models": {
+        "型号 B1（待配置）": {
+          "configured": false
+        }
+      }
+    },
+    "产品 C（待配置）": {
+      "models": {
+        "型号 C1（待配置）": {
+          "configured": false
+        }
+      }
+    },
+    "产品 D（待配置）": {
+      "models": {
+        "型号 D1（待配置）": {
+          "configured": false
+        }
+      }
+    },
+    "G系列": {
+      "models": {
+        "G1": {
+          "pairing": {
+            "model_label": "DPVR G1"
+          }
+        },
+        "G3": {
+          "pairing": {
+            "model_label": "DPVR G3"
+          }
+        },
+        "G6": {
+          "pairing": {
+            "model_label": "DPVR G6"
+          }
+        }
+      },
+      "configured": true,
+      "capabilities": {
+        "pairing": true
+      },
+      "name_pattern": "DPVR\\s+(G1|G3|G6)_[^\\s]+"
+    }
+  }
+}

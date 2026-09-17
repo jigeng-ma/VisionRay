@@ -1,0 +1,13 @@
+configs/mail_private.json
+
+# Local and generated artifacts
+.codex/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+bin/
+bin_fixed/
+outputs/
+runs/
+work/
+*.spec

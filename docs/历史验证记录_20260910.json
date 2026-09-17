@@ -1,0 +1,319 @@
+{
+  "source_sha256": "b3445d8528578df6db13d1dd9c8107d65d8d555aeb7d8e426a9680874641ecf0",
+  "sheets": 13,
+  "case_rows": 686,
+  "modules": {
+    "结果汇总": {
+      "warnings": [],
+      "header": null,
+      "ignored_id_only": 0,
+      "reason": "未识别到用例表头（汇总页或空表）",
+      "hidden": false,
+      "case_count": 0
+    },
+    "G01_配对": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 92
+    },
+    "G02_使用引导": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 26
+    },
+    "G03_首页+多设备管理": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 108
+    },
+    "G04_媒资导入": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 44
+    },
+    "G05_空间": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 1048526,
+      "reason": "",
+      "hidden": false,
+      "case_count": 49
+    },
+    "G05_翻译": {
+      "warnings": [],
+      "header": null,
+      "ignored_id_only": 0,
+      "reason": "未识别到用例表头（汇总页或空表）",
+      "hidden": true,
+      "case_count": 0
+    },
+    "G06_AI对话记录&设置": {
+      "warnings": [
+        "重复编号：AI_081（第 81 行）",
+        "重复编号：AI_085（第 83 行）"
+      ],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 90
+    },
+    "G07_拍摄设置": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 56
+    },
+    "G08_系统设置": {
+      "warnings": [
+        "重复编号：SS_029（第 31 行）",
+        "重复编号：SS_029（第 32 行）"
+      ],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 59
+    },
+    "G09_固件更新": {
+      "warnings": [
+        "重复编号：F-OTA_002（第 49 行）",
+        "重复编号：F-OTA_003（第 50 行）",
+        "重复编号：F-OTA_004（第 51 行）",
+        "重复编号：F-OTA_005（第 52 行）",
+        "重复编号：F-OTA_006（第 53 行）",
+        "重复编号：F-OTA_008（第 54 行）",
+        "重复编号：F-OTA_009（第 55 行）",
+        "重复编号：F-OTA_010（第 56 行）",
+        "重复编号：F-OTA_011（第 57 行）",
+        "重复编号：F-OTA_013（第 58 行）",
+        "重复编号：F-OTA_014（第 59 行）",
+        "重复编号：F-OTA_015（第 60 行）",
+        "重复编号：F-OTA_016（第 61 行）",
+        "重复编号：F-OTA_017（第 62 行）",
+        "重复编号：F-OTA_018（第 63 行）",
+        "重复编号：F-OTA_019（第 64 行）",
+        "重复编号：F-OTA_020（第 65 行）",
+        "重复编号：F-OTA_021（第 66 行）",
+        "重复编号：F-OTA_022（第 67 行）",
+        "重复编号：F-OTA_023（第 68 行）",
+        "重复编号：F-OTA_024（第 69 行）",
+        "重复编号：F-OTA_025（第 70 行）",
+        "重复编号：F-OTA_026（第 71 行）",
+        "重复编号：F-OTA_027（第 72 行）",
+        "重复编号：F-OTA_028（第 73 行）",
+        "重复编号：F-OTA_031（第 74 行）",
+        "重复编号：F-OTA_032（第 75 行）",
+        "重复编号：F-OTA_034（第 76 行）",
+        "重复编号：F-OTA_035（第 77 行）",
+        "重复编号：F-OTA_036（第 78 行）",
+        "重复编号：F-OTA_037（第 79 行）",
+        "重复编号：F-OTA_041（第 80 行）",
+        "重复编号：F-OTA_042（第 81 行）",
+        "重复编号：F-OTA_043（第 82 行）",
+        "重复编号：F-OTA_044（第 83 行）",
+        "重复编号：F-OTA_052（第 84 行）",
+        "第 85 行缺少编号"
+      ],
+      "header": 2,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 82
+    },
+    "G10_我的": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 54
+    },
+    "G13_AI模型（基础流程冒烟）": {
+      "warnings": [],
+      "header": 1,
+      "ignored_id_only": 0,
+      "reason": "",
+      "hidden": false,
+      "case_count": 26
+    }
+  },
+  "device_smoke": {
+    "folder": "C:\\Users\\CC\\Documents\\Codex\\2026-09-10\\app-ai-1-ui-2-app\\outputs\\glasses-test-studio\\runs\\20260910_153306_fa387059",
+    "summary": {
+      "环境检查": {
+        "PASS": 2
+      },
+      "元素检查": {
+        "NOT_RUN": 1
+      }
+    },
+    "manifest": {
+      "phone": "RFCX916QS9M",
+      "glasses": "B4900PA25JA0F9",
+      "glasses_name": "Vision Ray 1",
+      "config": {
+        "package": "com.dpvr.android.app.Occident",
+        "activity": "com.dpvr.android.appguide.activity.SplashActivity",
+        "locale": "en",
+        "appium_url": "http://127.0.0.1:4723",
+        "capabilities": {
+          "photo": null,
+          "video": null,
+          "voice": null,
+          "translation": null,
+          "firmware": null
+        },
+        "elements": {
+          "my.about": {
+            "by": "xpath",
+            "value": "//*[@resource-id='com.dpvr.android.app.Occident:id/title' and @text='About App']"
+          }
+        },
+        "configured": false,
+        "product": "待归类设备",
+        "model": "Vision Ray 1（系统型号，业务归属待确认）"
+      },
+      "run_id": "20260910_153306_fa387059",
+      "started": "2026-09-10T15:33:06.116752",
+      "devices": {
+        "phone": {
+          "serial": "RFCX916QS9M",
+          "model": "SM-S921U",
+          "android": "14",
+          "build": "UP1A.231005.007.S921USQS3AXFD"
+        },
+        "glasses": {
+          "serial": "B4900PA25JA0F9",
+          "model": "Vision Ray 1",
+          "android": "9",
+          "build": "G1PV002SP_7.33.2"
+        }
+      },
+      "mapping": {
+        "header_row": 0,
+        "id_col": "A",
+        "result_col": "L"
+      },
+      "selected": [
+        "环境检查"
+      ],
+      "state": "COMPLETED",
+      "input_sha256": "480aca8eff5a4b81046ec0e3da647272513e54bdaf7f777cadc56ceba2dc6cb2",
+      "finished": "2026-09-10T15:33:07.470851",
+      "error": null,
+      "export": "SUCCESS"
+    }
+  },
+  "template_smoke": {
+    "folder": "C:\\Users\\CC\\Documents\\Codex\\2026-09-10\\app-ai-1-ui-2-app\\outputs\\glasses-test-studio\\runs\\20260910_153331_d89aa0c0",
+    "summary": {
+      "结果汇总": {},
+      "G01_配对": {
+        "NOT_RUN": 92
+      },
+      "G02_使用引导": {
+        "NOT_RUN": 26
+      },
+      "G03_首页+多设备管理": {
+        "NOT_RUN": 108
+      },
+      "G04_媒资导入": {
+        "NOT_RUN": 44
+      },
+      "G05_空间": {
+        "NOT_RUN": 49
+      },
+      "G05_翻译": {},
+      "G06_AI对话记录&设置": {
+        "NOT_RUN": 88
+      },
+      "G07_拍摄设置": {
+        "NOT_RUN": 56
+      },
+      "G08_系统设置": {
+        "NOT_RUN": 57
+      },
+      "G09_固件更新": {
+        "NOT_RUN": 46
+      },
+      "G10_我的": {
+        "NOT_IMPLEMENTED": 54
+      },
+      "G13_AI模型（基础流程冒烟）": {
+        "NOT_RUN": 26
+      }
+    },
+    "manifest": {
+      "phone": "RFCX916QS9M",
+      "glasses": "B4900PA25JA0F9",
+      "glasses_name": "Vision Ray 1",
+      "config": {
+        "package": "com.dpvr.android.app.Occident",
+        "activity": "com.dpvr.android.appguide.activity.SplashActivity",
+        "locale": "en",
+        "appium_url": "http://127.0.0.1:4723",
+        "capabilities": {
+          "photo": null,
+          "video": null,
+          "voice": null,
+          "translation": null,
+          "firmware": null
+        },
+        "elements": {
+          "my.about": {
+            "by": "xpath",
+            "value": "//*[@resource-id='com.dpvr.android.app.Occident:id/title' and @text='About App']"
+          }
+        },
+        "configured": false,
+        "product": "待归类设备",
+        "model": "Vision Ray 1（系统型号，业务归属待确认）"
+      },
+      "run_id": "20260910_153331_d89aa0c0",
+      "started": "2026-09-10T15:33:31.552636",
+      "devices": {
+        "phone": {
+          "serial": "RFCX916QS9M",
+          "model": "SM-S921U",
+          "android": "14",
+          "build": "UP1A.231005.007.S921USQS3AXFD"
+        },
+        "glasses": {
+          "serial": "B4900PA25JA0F9",
+          "model": "Vision Ray 1",
+          "android": "9",
+          "build": "G1PV002SP_7.33.2"
+        }
+      },
+      "mapping": {
+        "header_row": 0,
+        "id_col": "A",
+        "result_col": "L"
+      },
+      "selected": [
+        "G10_我的"
+      ],
+      "state": "COMPLETED",
+      "input_sha256": "b3445d8528578df6db13d1dd9c8107d65d8d555aeb7d8e426a9680874641ecf0",
+      "finished": "2026-09-10T15:33:31.778763",
+      "error": null,
+      "export": "SUCCESS"
+    }
+  },
+  "preserved_zip_parts": 15
+}

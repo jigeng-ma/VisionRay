@@ -1,0 +1,6 @@
+{
+  "common": "common/registry.json",
+  "products": {
+    "G系列": "g_series/registry.json"
+  }
+}

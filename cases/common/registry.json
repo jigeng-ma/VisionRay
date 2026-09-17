@@ -1,0 +1,30 @@
+[
+  {
+    "sheet": "环境检查",
+    "id": "ENV-001",
+    "node": "cases/common/test_environment.py::test_app_installed",
+    "requires": [],
+    "diagnostic": true
+  },
+  {
+    "sheet": "环境检查",
+    "id": "ENV-002",
+    "node": "cases/common/test_environment.py::test_glasses_online",
+    "requires": [],
+    "diagnostic": true
+  },
+  {
+    "sheet": "元素检查",
+    "id": "UI-000",
+    "node": "cases/common/test_environment.py::test_ui_tree",
+    "requires": [],
+    "diagnostic": true
+  },
+  {
+    "sheet": "元素检查",
+    "id": "UI-001",
+    "node": "cases/common/test_environment.py::test_about_element",
+    "requires": [],
+    "diagnostic": true
+  }
+]
