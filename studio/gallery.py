@@ -119,7 +119,11 @@ class GalleryPage:
 
     def gallery_media_count(self):
         self.open()
-        return self._unscrolled_count('recycler_view', 'iv_media', '空间媒资列表')
+        total = self._unscrolled_count('recycler_view', 'iv_photo', '空间媒资列表')
+        video = len(self.all('iv_video_icon'))
+        if video > total:
+            raise AssertionError(f'空间视频标识数 {video} 大于媒资总数 {total}。')
+        return {'image': total - video, 'video': video, 'total': total}
 
     def recorder_media_count(self):
         self.open_home()
@@ -138,7 +142,7 @@ class GalleryPage:
         """图片加视频在空间页统计，录音在首页 Recorder 统计。"""
         gallery = self.gallery_media_count()
         recorder = self.recorder_media_count()
-        result = {'gallery': gallery, 'recorder': recorder, 'total': gallery + recorder}
+        result = dict(gallery, recorder=recorder, total=gallery['total'] + recorder)
         self.a.log('imported-media-total', result)
         return result
 
@@ -159,7 +163,8 @@ class GalleryPage:
         return before
 
     def media(self, minimum=1):
-        items = self.all('iv_media')
+        # 当前 APP 的空间缩略图使用 iv_photo；旧版本使用 iv_media。
+        items = self.all('iv_photo') or self.all('iv_media')
         if len(items) < minimum:
             raise TestBlocked(f'相册需要至少 {minimum} 个已导入测试媒资，当前为 {len(items)} 个。')
         return items

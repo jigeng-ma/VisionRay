@@ -27,3 +27,11 @@ def test_unscrolled_media_count_refuses_partial_list():
     page.one = Mock(return_value=Mock(get_attribute=Mock(return_value='true')))
     with pytest.raises(TestBlocked, match='可滚动'):
         page._unscrolled_count('list', 'item', '媒资列表')
+
+
+def test_gallery_count_separates_image_and_video():
+    page = object.__new__(GalleryPage)
+    page.open = Mock()
+    page._unscrolled_count = Mock(return_value=4)
+    page.all = Mock(return_value=[Mock()])
+    assert page.gallery_media_count() == {'image': 3, 'video': 1, 'total': 4}

@@ -58,7 +58,7 @@ def assert_import_increment(page, surface):
     after = page.imported_totals()
     assert after['total'] == before['total'] + imported, (
         f'导入总数增量不符：导入前 {before["total"]}，卡片待导入 {imported}，导入后 {after["total"]}。')
-    assert after['gallery'] + after['recorder'] == after['total']
+    assert after['image'] + after['video'] + after['recorder'] == after['total']
 
 
 def test_import_from_home(gallery):
