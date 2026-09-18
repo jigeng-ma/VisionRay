@@ -667,25 +667,25 @@
     "sheet": "G04_媒资导入",
     "id": "IMP_001",
     "automation_id": "IMP_001",
-    "node": "cases/g_series/test_gallery.py::test_import_card_on_gallery",
+    "node": "cases/g_series/test_gallery.py::test_import_card_on_home_and_gallery",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 180
   },
   {
     "sheet": "G04_媒资导入",
     "id": "IMP_002",
     "automation_id": "IMP_002",
-    "node": "cases/g_series/test_gallery.py::test_photo_creates_import_card",
+    "node": "cases/g_series/test_gallery.py::test_each_media_updates_import_count",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 150
   },
   {
     "sheet": "G04_媒资导入",
     "id": "IMP_003",
     "automation_id": "IMP_003",
-    "node": "cases/g_series/test_gallery.py::test_import_media",
+    "node": "cases/g_series/test_gallery.py::test_import_from_home",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 180

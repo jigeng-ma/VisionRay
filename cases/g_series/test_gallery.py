@@ -19,28 +19,57 @@ def run(page, action):
         pytest.skip(str(exc))
 
 
-def test_import_card_on_gallery(gallery):
+def prepare_three_pending_media(page):
+    """每种媒体各产生一条，并在每一步校验首页与空间页卡片的累加数量。"""
+    media = BleMediaCommands(page.a)
+    baseline = page.pending_count_or_zero('home')
+    for expected, action in enumerate((media.take_photo, media.record_video, media.record_audio), baseline + 1):
+        action()
+        page.a.wait(lambda: page.pending_count_on('home') == expected, '首页待导入媒资数量更新', 30)
+        page.assert_pending_counts(expected)
+    return baseline + 3
+
+
+def restart_app(page, adb):
+    package = page.package
+    phone = page.a.context['phone']
+    adb.shell(phone, 'am', 'force-stop', package)
+    adb.shell(phone, 'monkey', '-p', package, '-c', 'android.intent.category.LAUNCHER', '1')
+    page.a.wait(lambda: page.a.driver.current_package == package, 'APP 重启后前台启动', 25)
+
+
+def test_import_card_on_home_and_gallery(gallery, adb):
     def action():
-        gallery.open()
-        gallery.require_import_card()
+        expected = prepare_three_pending_media(gallery)
+        restart_app(gallery, adb)
+        gallery.assert_pending_counts(expected)
     run(gallery, action)
 
 
-def test_photo_creates_import_card(gallery):
+def test_each_media_updates_import_count(gallery):
     def action():
-        BleMediaCommands(gallery.a).take_photo()
-        gallery.open()
-        gallery.a.wait(gallery.import_card, '拍照后待导入媒资卡片', 30)
+        prepare_three_pending_media(gallery)
     run(gallery, action)
 
 
-def test_import_media(gallery):
+def assert_import_increment(page, surface):
+    before = page.imported_totals()
+    imported = page.import_from(surface)
+    after = page.imported_totals()
+    assert after['total'] == before['total'] + imported, (
+        f'导入总数增量不符：导入前 {before["total"]}，卡片待导入 {imported}，导入后 {after["total"]}。')
+    assert after['gallery'] + after['recorder'] == after['total']
+
+
+def test_import_from_home(gallery):
     def action():
-        gallery.open()
-        _, button = gallery.require_import_card()
-        button.click()
-        gallery.a.wait(lambda: not gallery.import_card(), '导入完成', 120)
-        gallery.media()
+        assert_import_increment(gallery, 'home')
+    run(gallery, action)
+
+
+def test_import_from_gallery(gallery):
+    def action():
+        assert_import_increment(gallery, 'gallery')
     run(gallery, action)
 
 

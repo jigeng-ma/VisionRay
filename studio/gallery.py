@@ -1,5 +1,6 @@
 """G 系列相册、媒资导入和空间用例的公共页面动作。"""
 import os
+import re
 from .errors import TestBlocked
 
 
@@ -23,12 +24,34 @@ class GalleryPage:
 
     def open(self):
         self.a.ensure_foreground()
-        tabs = self.a.wait(lambda: [e for e in self.all('tabIcon') if e.is_enabled()], '底部导航', 15)
+        tabs = []
+        for _ in range(4):
+            tabs = [e for e in self.all('tabIcon') if e.is_enabled()]
+            if tabs:
+                break
+            self.d.press_keycode(4)
+        if not tabs:
+            raise TestBlocked('未显示底部导航，请先完成首次引导。')
         if len(tabs) < 2:
             raise TestBlocked('未显示相册入口，请先完成首次引导。')
         tabs[1].click()
         title = self.one('gallery_title', 'Gallery 页面')
         assert title.text == 'Gallery'
+        return self
+
+    def open_home(self):
+        """回到首页，以便读取首页的待导入卡片。"""
+        self.a.ensure_foreground()
+        tabs = []
+        for _ in range(4):
+            tabs = [e for e in self.all('tabIcon') if e.is_enabled()]
+            if tabs:
+                break
+            self.d.press_keycode(4)
+        if not tabs:
+            raise TestBlocked('未显示首页入口，请先完成首次引导。')
+        tabs[0].click()
+        self.one('devices_title', '首页')
         return self
 
     def import_card(self):
@@ -45,6 +68,95 @@ class GalleryPage:
         if not button.is_enabled():
             raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
         return card, button
+
+    @staticmethod
+    def _card_text(card):
+        values = [card.text.strip()]
+        values += [e.text.strip() for e in card.find_elements('xpath', './/*[@text]')]
+        return [value for value in values if value]
+
+    def import_count(self):
+        """读取待导入卡片上的媒资数；格式不明确时不猜测。"""
+        card, _ = self.require_import_card()
+        values = self._card_text(card)
+        # 当前版本在 tv_import_title/tv_import_subtitle 中显示单个待导入数量。
+        numbers = {int(value) for text in values
+                   for value in re.findall(r'(?<!\d)(\d+)(?!\d)', text)}
+        if len(numbers) != 1:
+            raise TestBlocked('无法从待导入卡片唯一解析媒资数量：' + ' | '.join(values))
+        return numbers.pop()
+
+    def pending_count_on(self, surface):
+        if surface == 'home':
+            self.open_home()
+        elif surface == 'gallery':
+            self.open()
+        else:
+            raise ValueError('surface 仅支持 home 或 gallery。')
+        return self.import_count()
+
+    def assert_pending_counts(self, expected):
+        """首页与空间页展示的待导入数量必须一致且等于 expected。"""
+        actual = {surface: self.pending_count_on(surface) for surface in ('home', 'gallery')}
+        assert actual == {'home': expected, 'gallery': expected}, (
+            f'待导入媒资数量不符：期望 {expected}，实际首页 {actual["home"]}、空间页 {actual["gallery"]}。')
+        self.a.log('pending-media-count', actual)
+
+    def pending_count_or_zero(self, surface):
+        if surface == 'home':
+            self.open_home()
+        elif surface == 'gallery':
+            self.open()
+        else:
+            raise ValueError('surface 仅支持 home 或 gallery。')
+        return self.import_count() if self.import_card() else 0
+
+    def _unscrolled_count(self, container, item, label):
+        root = self.one(container, label)
+        if root.get_attribute('scrollable') == 'true':
+            raise TestBlocked(f'{label}可滚动，当前版本无法可靠读取全部媒资数。')
+        return len(self.all(item))
+
+    def gallery_media_count(self):
+        self.open()
+        return self._unscrolled_count('recycler_view', 'iv_media', '空间媒资列表')
+
+    def recorder_media_count(self):
+        self.open_home()
+        recorder = [e for e in self.all('tv_grid_title') if e.text == 'Recorder']
+        if len(recorder) != 1:
+            raise TestBlocked('首页未唯一找到 Recorder 入口。')
+        recorder[0].click()
+        self.one('rv_audio_list', '录音机列表')
+        try:
+            return self._unscrolled_count('rv_audio_list', 'v_play_btn2', '录音机媒资列表')
+        finally:
+            self.d.press_keycode(4)
+            self.a.wait(lambda: self.all('devices_title'), '从录音机返回首页', 12)
+
+    def imported_totals(self):
+        """图片加视频在空间页统计，录音在首页 Recorder 统计。"""
+        gallery = self.gallery_media_count()
+        recorder = self.recorder_media_count()
+        result = {'gallery': gallery, 'recorder': recorder, 'total': gallery + recorder}
+        self.a.log('imported-media-total', result)
+        return result
+
+    def import_from(self, surface):
+        """在指定入口导入，并返回导入前卡片显示的真实数量。"""
+        before = self.pending_count_on(surface)
+        button = self.one('import_btn', '导入按钮')
+        if not button.is_enabled():
+            raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
+        button.click()
+        self.a.wait(lambda: not self.import_card(), '导入完成', 120)
+        # 导入完成后，两个入口都不应继续显示同一批待导入媒资。
+        self.open_home()
+        assert not self.import_card(), '首页导入完成后仍显示待导入媒资卡片。'
+        self.open()
+        assert not self.import_card(), '空间页导入完成后仍显示待导入媒资卡片。'
+        self.a.log('imported-media-count', {'surface': surface, 'count': before})
+        return before
 
     def media(self, minimum=1):
         items = self.all('iv_media')
