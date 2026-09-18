@@ -1,6 +1,8 @@
 """G 系列相册、媒资导入和空间用例的公共页面动作。"""
 import os
 import re
+import sqlite3
+import tempfile
 from .errors import TestBlocked
 
 
@@ -35,6 +37,13 @@ class GalleryPage:
         if len(tabs) < 2:
             raise TestBlocked('未显示相册入口，请先完成首次引导。')
         tabs[1].click()
+        # 相册会保留上次滚动位置；标题滚出屏幕后先回到顶部再断言。
+        for _ in range(6):
+            if self.all('gallery_title'):
+                break
+            size = self.d.get_window_size()
+            self.d.swipe(size['width'] // 2, int(size['height'] * .30),
+                         size['width'] // 2, int(size['height'] * .82), 300)
         title = self.one('gallery_title', 'Gallery 页面')
         assert title.text == 'Gallery'
         return self
@@ -135,13 +144,39 @@ class GalleryPage:
             raise TestBlocked(f'{label}可滚动，当前版本无法可靠读取全部媒资数。')
         return len(self.all(item))
 
+    def _media_counts_from_database(self):
+        """以 APP 的 file_metadata 记录作为跨页媒资总数的唯一来源。"""
+        from .devices import Adb
+        phone = self.a.context.get('phone')
+        if not phone:
+            raise TestBlocked('缺少手机序列号，无法读取媒资数据库。')
+        try:
+            data = Adb().run('-s', phone, 'exec-out', 'run-as', self.package,
+                             'cat', 'databases/nova_app_database', binary=True)
+            descriptor, path = tempfile.mkstemp(suffix='.sqlite')
+            os.close(descriptor)
+            try:
+                with open(path, 'wb') as file:
+                    file.write(data)
+                database = sqlite3.connect(path)
+                rows = database.execute(
+                    'select file_type, count(*) from file_metadata group by file_type'
+                ).fetchall()
+                database.close()
+            finally:
+                if os.path.exists(path):
+                    os.unlink(path)
+        except Exception as error:
+            raise TestBlocked('无法读取 APP 媒资数据库：' + str(error)) from error
+        result = dict(rows)
+        return {'image': result.get('image', 0), 'video': result.get('video', 0),
+                'audio': result.get('audio', 0)}
+
     def gallery_media_count(self):
         self.open()
-        total = self._unscrolled_count('recycler_view', 'iv_photo', '空间媒资列表')
-        video = len(self.all('iv_video_icon'))
-        if video > total:
-            raise AssertionError(f'空间视频标识数 {video} 大于媒资总数 {total}。')
-        return {'image': total - video, 'video': video, 'total': total}
+        counts = self._media_counts_from_database()
+        return {'image': counts['image'], 'video': counts['video'],
+                'total': counts['image'] + counts['video']}
 
     def recorder_media_count(self):
         self.open_home()
@@ -151,7 +186,7 @@ class GalleryPage:
         recorder[0].click()
         self.one('rv_audio_list', '录音机列表')
         try:
-            return self._unscrolled_count('rv_audio_list', 'v_play_btn2', '录音机媒资列表')
+            return self._media_counts_from_database()['audio']
         finally:
             self.d.press_keycode(4)
             self.a.wait(lambda: self.all('devices_title'), '从录音机返回首页', 12)

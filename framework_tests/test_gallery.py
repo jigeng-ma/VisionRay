@@ -29,9 +29,8 @@ def test_unscrolled_media_count_refuses_partial_list():
         page._unscrolled_count('list', 'item', '媒资列表')
 
 
-def test_gallery_count_separates_image_and_video():
+def test_gallery_count_uses_media_database():
     page = object.__new__(GalleryPage)
     page.open = Mock()
-    page._unscrolled_count = Mock(return_value=4)
-    page.all = Mock(return_value=[Mock()])
+    page._media_counts_from_database = Mock(return_value={'image': 3, 'video': 1, 'audio': 2})
     assert page.gallery_media_count() == {'image': 3, 'video': 1, 'total': 4}
