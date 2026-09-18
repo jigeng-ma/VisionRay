@@ -151,21 +151,24 @@ class GalleryPage:
         if not phone:
             raise TestBlocked('缺少手机序列号，无法读取媒资数据库。')
         try:
-            data = Adb().run('-s', phone, 'exec-out', 'run-as', self.package,
-                             'cat', 'databases/nova_app_database', binary=True)
-            descriptor, path = tempfile.mkstemp(suffix='.sqlite')
-            os.close(descriptor)
-            try:
-                with open(path, 'wb') as file:
-                    file.write(data)
+            adb = Adb()
+            with tempfile.TemporaryDirectory() as directory:
+                path = os.path.join(directory, 'nova_app_database')
+                for suffix in ('', '-wal', '-shm'):
+                    try:
+                        data = adb.run('-s', phone, 'exec-out', 'run-as', self.package,
+                                       'cat', 'databases/nova_app_database' + suffix, binary=True)
+                    except Exception:
+                        if suffix == '':
+                            raise
+                        continue
+                    with open(path + suffix, 'wb') as file:
+                        file.write(data)
                 database = sqlite3.connect(path)
                 rows = database.execute(
                     'select file_type, count(*) from file_metadata group by file_type'
                 ).fetchall()
                 database.close()
-            finally:
-                if os.path.exists(path):
-                    os.unlink(path)
         except Exception as error:
             raise TestBlocked('无法读取 APP 媒资数据库：' + str(error)) from error
         result = dict(rows)
