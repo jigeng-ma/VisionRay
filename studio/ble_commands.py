@@ -8,6 +8,7 @@ from .home_device import HomeDevicePage
 
 class BleMediaCommands:
     ACTIVITY = 'com.dpvr.android.settings.activity.BleKTClientActivity'
+    CLICK_INTERVAL_SECONDS = 3
     BUTTONS = {
         'take_photo': ('btn_start_photo', '拍照'),
         'start_video': ('btn_start_video', '开始录像'),
@@ -22,6 +23,7 @@ class BleMediaCommands:
             raise TestBlocked('BLE 媒体命令仅适用于 G1/G3/G6。')
         self.a = android
         self.package = config['package']
+        self._last_click_at = None
 
     def _find(self, resource):
         found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)
@@ -62,7 +64,10 @@ class BleMediaCommands:
         if button.text != label or not button.is_enabled():
             raise TestBlocked(f'{label} 按钮文案不符或不可用。')
         # 点击放在等待/重试循环之外，避免重复拍摄或重复开始录制。
+        if self._last_click_at is not None:
+            time.sleep(max(0, self.CLICK_INTERVAL_SECONDS - (time.monotonic() - self._last_click_at)))
         button.click()
+        self._last_click_at = time.monotonic()
         self.a.log('ble-media-click', action)
 
     @staticmethod

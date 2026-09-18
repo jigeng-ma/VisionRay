@@ -4,7 +4,8 @@ from studio.ble_commands import BleMediaCommands
 from studio.errors import TestBlocked
 
 
-def test_model_guard_and_exactly_one_click_even_on_error():
+def test_model_guard_and_exactly_one_click_even_on_error(monkeypatch):
+    monkeypatch.setattr('studio.ble_commands.time.sleep', lambda _: None)
     a = Mock(context={'config': {'product': 'G系列', 'model': 'G1', 'package': 'test'}})
     for model in ('G1', 'G3', 'G6'):
         a.context['config']['model'] = model
@@ -48,6 +49,20 @@ def test_counts_defaults_and_cleanup(monkeypatch):
     with pytest.raises(RuntimeError):
         p.record_audio(duration=40)
     assert [c.args[0] for c in p._click.call_args_list] == ['start_audio', 'stop_audio']
+
+
+def test_every_media_click_observes_three_second_interval(monkeypatch):
+    a = Mock(context={'config': {'product': 'G系列', 'model': 'G1', 'package': 'test'}})
+    p = BleMediaCommands(a)
+    p.open = Mock()
+    a.wait.return_value = Mock(text='拍照')
+    clock = iter((10, 11, 13))
+    monkeypatch.setattr('studio.ble_commands.time.monotonic', lambda: next(clock))
+    sleep = Mock()
+    monkeypatch.setattr('studio.ble_commands.time.sleep', sleep)
+    p._click('take_photo')
+    p._click('take_photo')
+    sleep.assert_called_once_with(2)
 
 
 @pytest.mark.parametrize('count', [0, -1, 1.5, True])
