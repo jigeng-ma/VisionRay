@@ -55,6 +55,12 @@ class GalleryPage:
         return self
 
     def import_card(self):
+        # 当前版本首页和空间页均使用状态通知卡片；旧版本空间页使用 import_file。
+        status = self.all('status_title_tv')
+        if len(status) > 1:
+            raise AssertionError('待导入媒资通知匹配不唯一。')
+        if status:
+            return status[0]
         cards = self.all('import_file')
         if len(cards) > 1:
             raise AssertionError('待导入媒资卡片匹配不唯一。')
@@ -64,7 +70,7 @@ class GalleryPage:
         card = self.import_card()
         if not card:
             raise TestBlocked('眼镜没有待导入媒资；请准备图片、视频、录音后重试。')
-        button = self.one('import_btn', '导入按钮')
+        button = self.one('status_action_btn' if self.all('status_title_tv') else 'import_btn', '导入按钮')
         if not button.is_enabled():
             raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
         return card, button
@@ -89,11 +95,22 @@ class GalleryPage:
     def pending_count_on(self, surface):
         if surface == 'home':
             self.open_home()
+            return self.home_import_count()
         elif surface == 'gallery':
             self.open()
         else:
             raise ValueError('surface 仅支持 home 或 gallery。')
         return self.import_count()
+
+    def home_import_count(self):
+        """首页通知使用 status_title_tv，例如 ``Found 13 Items``。"""
+        notices = self.all('status_title_tv')
+        if len(notices) != 1:
+            raise TestBlocked('首页没有待导入媒资通知。')
+        values = re.findall(r'(?<!\d)(\d+)(?!\d)', notices[0].text)
+        if len(values) != 1:
+            raise TestBlocked('无法从首页媒资通知解析数量：' + notices[0].text)
+        return int(values[0])
 
     def assert_pending_counts(self, expected):
         """首页与空间页展示的待导入数量必须一致且等于 expected。"""
@@ -105,6 +122,7 @@ class GalleryPage:
     def pending_count_or_zero(self, surface):
         if surface == 'home':
             self.open_home()
+            return self.home_import_count() if self.all('status_title_tv') else 0
         elif surface == 'gallery':
             self.open()
         else:
@@ -149,11 +167,14 @@ class GalleryPage:
     def import_from(self, surface):
         """在指定入口导入，并返回导入前卡片显示的真实数量。"""
         before = self.pending_count_on(surface)
-        button = self.one('import_btn', '导入按钮')
+        button = self.one('status_action_btn' if self.all('status_title_tv') else 'import_btn', '导入按钮')
         if not button.is_enabled():
             raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
         button.click()
-        self.a.wait(lambda: not self.import_card(), '导入完成', 120)
+        if self.all('status_title_tv'):
+            self.a.wait(lambda: not self.all('status_title_tv'), '导入完成', 120)
+        else:
+            self.a.wait(lambda: not self.import_card(), '空间页导入完成', 120)
         # 导入完成后，两个入口都不应继续显示同一批待导入媒资。
         self.open_home()
         assert not self.import_card(), '首页导入完成后仍显示待导入媒资卡片。'
