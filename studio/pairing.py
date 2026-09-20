@@ -8,6 +8,29 @@ class PairingPage:
         self.a = android
         self.options = android.context['config']['pairing']
 
+    def enable_g_series_models(self):
+        """按新版 UI 的隐藏入口启用 G1/G3/G6 型号。"""
+        a = self.a
+        package = a.context['config']['package']
+        tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+        if len(tabs) < 3:
+            raise TestBlocked('无法返回含“我的”入口的首页，不能启用 G 系列隐藏型号。')
+        tabs[-1].click()
+        a.element('my.about', 12).click()
+        for _ in range(10):
+            button = a.wait(lambda: next((e for e in a.driver.find_elements('id', package + ':id/tv_version')
+                                           if e.is_displayed() and e.text == 'VisionRay'), None),
+                            'VisionRay 版本入口', 10)
+            button.click()
+            time.sleep(.3)
+        a.driver.press_keycode(4)
+        a.wait(lambda: [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()],
+               '从 About App 返回我的页面', 12)
+        tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+        tabs[0].click()
+        a.wait(lambda: a.find('pair.add'), '返回 Add Device 首页', 12)
+        a.log('enable-g-series-models', 'VisionRay clicked 10 times')
+
     def select_model(self, label):
         a = self.a
         a.element('pair.models_title')
@@ -58,6 +81,7 @@ class PairingPage:
             raise TestBlocked('当前为已绑定首页或使用引导页，不满足首次绑定前提。当前页面：' +
                               a.driver.current_activity + '；请解除绑定并回到 Add Device 首页。')
         a.capture('unbound-home')
+        self.enable_g_series_models()
         a.click('pair.add')
         self.select_model(self.options['model_label'])
         a.element('pair.prepare_title')
