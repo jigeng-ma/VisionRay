@@ -51,6 +51,9 @@ class GalleryPage:
     def open_home(self):
         """回到首页，以便读取首页的待导入卡片。"""
         self.a.ensure_foreground()
+        # 与首页类用例保持一致：未绑定时先执行可恢复的配对准备。
+        from .home_device import HomeDevicePage
+        HomeDevicePage(self.a).home()
         tabs = []
         for _ in range(4):
             tabs = [e for e in self.all('tabIcon') if e.is_enabled()]

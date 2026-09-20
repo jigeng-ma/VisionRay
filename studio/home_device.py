@@ -24,6 +24,17 @@ class HomeDevicePage:
             self.a.element('pair.skip_title')
             self.a.click('pair.skip_confirm')
             self.a.wait(lambda: self.a.find('pair.home_title'), '跳过引导后首页', 15)
+        if self.a.find('pair.add'):
+            # 依赖已绑定首页的用例自行建立前置条件，避免前面的解绑/引导用例
+            # 让后续业务用例全部在 Add Device 页面超时。
+            from .pairing import PairingPage
+            pairing = PairingPage(self.a)
+            original = pairing.options.get('skip_tutorial', False)
+            try:
+                pairing.options['skip_tutorial'] = True
+                pairing.run()
+            finally:
+                pairing.options['skip_tutorial'] = original
         if not self.a.find('pair.home_title'):
             for _ in range(3):
                 tabs = [e for e in self.a.driver.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()]

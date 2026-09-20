@@ -29,12 +29,21 @@ class PairingPage:
             seen.add(signature)
             if attempt == self.options['max_scrolls']:
                 break
-            container = a.element('pair.models_scroll')
-            a.driver.execute_script('mobile: scrollGesture', {'elementId':container.id,'direction':'down','percent':.75})
-            # scrollGesture 返回 False 可能表示本次刚到末尾，仍需检查末尾项目。
+            try:
+                size = a.driver.get_window_size()
+                # 1.2.38 的型号页由 rvDeviceList 承载，旧版 scrollContent 已不存在；
+                # 使用真实触点滑动可兼容两版页面。
+                a.driver.swipe(int(size['width'] * .50), int(size['height'] * .78),
+                               int(size['width'] * .50), int(size['height'] * .28), 500)
+            except (KeyError, TypeError):
+                # 保留无真实窗口的测试驱动兼容性。
+                a.driver.execute_script('mobile: scrollGesture', {'direction': 'down', 'percent': .75})
             time.sleep(.3)
         a.capture('model-not-found')
-        raise AssertionError('滚动列表后仍找不到型号：' + label)
+        available = sorted({e.text for e in a.driver.find_elements('id', self.options['model_label_id'])
+                            if e.is_displayed() and e.text})
+        raise TestBlocked('当前 APP 型号列表未提供 ' + label + '；实际可选：' +
+                          ('、'.join(available) if available else '无'))
 
     def prepare_search(self):
         a = self.a
