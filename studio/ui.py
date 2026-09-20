@@ -322,7 +322,8 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror('无法开始', str(exc))
             return
-        selected, source = list(self.selected), self.path.get()
+        # self.selected 是集合，只用于保存勾选状态；执行顺序以表格模块的显示顺序为准。
+        selected, source = [name for name in self.modules if name in self.selected], self.path.get()
         self.completed = self.passed = self.failed = 0
         self.blocked = self.unimplemented = self.not_applicable = self.skipped = 0
         self.total = 0

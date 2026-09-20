@@ -130,6 +130,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual([c['id'] for c in ordered_plan(cases, ['G02_使用引导'], entries)],
                          ['UG_001', 'UG_003', 'UG_002'])
 
+    def test_selected_modules_follow_excel_sheet_order(self):
+        fixture(self.file, {'G00_登录注册': self.rows, 'G01_配对': self.rows,
+                            'G02_使用引导': self.rows})
+        # 输入模拟 UI 集合的任意枚举顺序；执行器应按工作簿顺序恢复。
+        modules = inspect(self.file, Mapping())
+        selected = [name for name in modules if name in {'G02_使用引导', 'G00_登录注册'}]
+        self.assertEqual(selected, ['G00_登录注册', 'G02_使用引导'])
+
     def test_changed_workbook_rejected(self):
         fixture(self.file, {'选择': self.rows})
         with self.assertRaisesRegex(ValueError, '已发生变化'):

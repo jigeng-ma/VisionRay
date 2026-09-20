@@ -13,8 +13,17 @@ class HomeDevicePage:
         return self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath', xpath) if e.is_displayed()), None), value, timeout)
 
     def home(self):
-        if self.a.driver.current_package != self.package:
-            raise TestBlocked('APP 未在前台；首页类用例不会自动启动 APP。')
+        self.a.ensure_foreground()
+        # 引导用例被中止时可能停在“Skip guidance?”确认框；先收敛到首页，
+        # 后续首页用例才不会把该临时状态误报成元素定位失败。
+        if self.a.find('pair.skip_title'):
+            self.a.click('pair.skip_confirm')
+            self.a.wait(lambda: self.a.find('pair.home_title'), '确认跳过引导后首页', 15)
+        elif self.a.find('pair.tutorial_begin'):
+            self.a.click('pair.skip')
+            self.a.element('pair.skip_title')
+            self.a.click('pair.skip_confirm')
+            self.a.wait(lambda: self.a.find('pair.home_title'), '跳过引导后首页', 15)
         if not self.a.find('pair.home_title'):
             for _ in range(3):
                 tabs = [e for e in self.a.driver.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()]

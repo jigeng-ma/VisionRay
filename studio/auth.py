@@ -62,11 +62,24 @@ class AuthPage:
     def settle(self):
         time.sleep(.8)
 
+    def leave_pending_guide(self):
+        """恢复上轮遗留的使用引导，保证账号流程从可导航页面开始。"""
+        if self.a.find('pair.skip_title'):
+            self.a.click('pair.skip_confirm')
+            self.a.wait(lambda: self.has('tabIcon'), '确认跳过引导后主页面', 15)
+        elif self.a.find('pair.tutorial_begin'):
+            self.a.click('pair.skip')
+            self.a.element('pair.skip_title')
+            self.a.click('pair.skip_confirm')
+            self.a.wait(lambda: self.has('tabIcon'), '跳过引导后主页面', 15)
+
     def home(self):
         self.a.ensure_foreground()
+        self.leave_pending_guide()
         self.a.wait(lambda: any(self.has(k) for k in ('tabIcon', 'tv_login_by_email',
             'back_iv', 'tv_cancel')), '账号流程页面加载完成', 25)
         for _ in range(9):
+            self.leave_pending_guide()
             if self.has('tv_login_by_email'):
                 self.click('tv_skip')
                 self.a.wait(lambda: self.has('tabIcon'), 'Skip 后主页面', 15)

@@ -108,6 +108,9 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
         raise ValueError('读取期间 Excel 被修改，请重新读取。')
     if not selected or set(selected) - set(modules):
         raise ValueError('请至少选择一个有效模块。')
+    # UI 用 set 保存勾选状态；执行时必须恢复 Excel Sheet 的原始排列，
+    # 不能把 set 的无序遍历结果当成模块执行顺序。
+    selected = [name for name in modules if name in selected]
     for name in selected:
         if not modules[name]['cases'] or modules[name]['warnings']:
             raise ValueError(f'模块「{name}」为空或存在缺失编号，请先修正。')
