@@ -34,17 +34,18 @@ class PairingPage:
     def select_model(self, label):
         a = self.a
         a.element('pair.models_title')
+        labels = {label, label.removeprefix('DPVR ')}
         seen = set()
         for attempt in range(self.options['max_scrolls'] + 1):
             # 每次滚动后重新定位，列表增加型号不会改变选择逻辑。
             elements = a.driver.find_elements('id', self.options['model_label_id'])
             visible = [e for e in elements if e.is_displayed()]
-            matches = [e for e in visible if e.text == label]
+            matches = [e for e in visible if e.text in labels]
             if len(matches) > 1:
                 raise AssertionError('型号名称重复：' + label)
             if matches:
                 matches[0].click()
-                a.log('select-model', label)
+                a.log('select-model', matches[0].text)
                 return
             signature = tuple(e.text for e in visible)
             if signature in seen:
@@ -65,7 +66,7 @@ class PairingPage:
         a.capture('model-not-found')
         available = sorted({e.text for e in a.driver.find_elements('id', self.options['model_label_id'])
                             if e.is_displayed() and e.text})
-        raise TestBlocked('当前 APP 型号列表未提供 ' + label + '；实际可选：' +
+        raise TestBlocked('当前 APP 型号列表未提供 ' + ' / '.join(sorted(labels)) + '；实际可选：' +
                           ('、'.join(available) if available else '无'))
 
     def prepare_search(self):
