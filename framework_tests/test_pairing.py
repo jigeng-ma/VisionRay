@@ -101,6 +101,15 @@ class ScrollTests(unittest.TestCase):
             PairingPage(a).select_model('DPVR G6')
         last.click.assert_called_once();first.click.assert_not_called()
 
+    def test_missing_g_model_enables_it_then_retries_once(self):
+        a=Mock();a.context={'config':{'pairing':{'max_scrolls':0,'model_label_id':'label'}}}
+        found=Mock();found.text='DPVR G1';found.is_displayed.return_value=True
+        a.driver.find_elements.side_effect=[[], [], [found]]
+        page=PairingPage(a);page.enable_g_series_models=Mock()
+        page.select_model('DPVR G1')
+        page.enable_g_series_models.assert_called_once()
+        found.click.assert_called_once()
+
 class RoutingTests(unittest.TestCase):
     setUp = core.CoreTests.setUp
     @patch('studio.runner.Adb')

@@ -42,7 +42,7 @@ class PairingPage:
         a.wait(lambda: a.find('pair.add'), '返回 Add Device 首页', 12)
         a.log('enable-g-series-models', 'VisionRay clicked 11 times in rapid succession')
 
-    def select_model(self, label):
+    def select_model(self, label, retry=True):
         a = self.a
         a.element('pair.models_title')
         labels = {label, label.removeprefix('DPVR ')}
@@ -77,6 +77,14 @@ class PairingPage:
         a.capture('model-not-found')
         available = sorted({e.text for e in a.driver.find_elements('id', self.options['model_label_id'])
                             if e.is_displayed() and e.text})
+        g_labels = {'DPVR G1', 'DPVR G3', 'DPVR G6', 'G1', 'G3', 'G6'}
+        if retry and labels & g_labels:
+            a.log('model-missing', {'target': label, 'available': available})
+            a.driver.press_keycode(4)
+            a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
+            self.enable_g_series_models()
+            a.click('pair.add')
+            return self.select_model(label, retry=False)
         raise TestBlocked('当前 APP 型号列表未提供 ' + ' / '.join(sorted(labels)) + '；实际可选：' +
                           ('、'.join(available) if available else '无'))
 
