@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import time
 import zipfile
@@ -33,6 +34,30 @@ def download(build_key: str, target: Path) -> Path:
     return target
 
 
+def resolve_build(source: str, version: str | None, build: str | None) -> str:
+    """Resolve a public Pgyer app page to its build key."""
+    if re.fullmatch(r"[0-9a-f]{32}", source):
+        return source
+    with urlopen(Request(source, headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
+        page = response.read().decode("utf-8", errors="ignore")
+    keys = list(dict.fromkeys(re.findall(r"/app/build/([0-9a-f]{32})", page)))
+    if not keys:
+        raise RuntimeError("No Pgyer builds were found on the supplied download page.")
+    if not version and not build:
+        return keys[0]
+    for key in keys:
+        with urlopen(Request(f"https://www.pgyer.com/app/build/{key}", headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
+            detail = response.read().decode("utf-8", errors="ignore")
+        found_version = re.search(r"aVersion\s*=\s*['\"]([^'\"]+)", detail)
+        found_build = re.search(r"(?:buildVersion|buildBuildVersion)\s*=\s*['\"]?(\d+)", detail)
+        if version and (not found_version or found_version.group(1) != version):
+            continue
+        if build and (not found_build or found_build.group(1) != build):
+            continue
+        return key
+    raise RuntimeError("No Pgyer build matched the supplied version/build value.")
+
+
 def install(serial: str, apk: Path) -> str:
     result = subprocess.run(["adb", "-s", serial, "install", "-r", str(apk)], text=True, capture_output=True, check=False)
     if result.returncode or "Success" not in result.stdout:
@@ -42,11 +67,14 @@ def install(serial: str, apk: Path) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("build_key", help="Pgyer build key, from the selected version URL")
+    parser.add_argument("source", help="Pgyer download-page URL, or a direct Pgyer build key")
     parser.add_argument("--serial", required=True, help="ADB device serial")
+    parser.add_argument("--version", help="Exact version, e.g. 1.2.39-Occident-debug")
+    parser.add_argument("--build", help="Pgyer build number, e.g. 121")
     parser.add_argument("--output", type=Path, default=Path("work/downloads/VisionRay.apk"))
     args = parser.parse_args()
-    apk = download(args.build_key, args.output)
+    build_key = resolve_build(args.source, args.version, args.build)
+    apk = download(build_key, args.output)
     print(f"downloaded: {apk} ({apk.stat().st_size} bytes)")
     print(install(args.serial, apk))
 
