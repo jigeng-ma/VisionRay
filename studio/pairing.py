@@ -12,24 +12,35 @@ class PairingPage:
         """按新版 UI 的隐藏入口启用 G1/G3/G6 型号。"""
         a = self.a
         package = a.context['config']['package']
+        # 隐藏入口是开关；先检查，避免下一条配对用例把已显示的型号再次隐藏。
+        a.click('pair.add')
+        a.element('pair.models_title', 12)
+        names = {e.text for e in a.driver.find_elements('id', self.options['model_label_id']) if e.is_displayed()}
+        a.driver.press_keycode(4)
+        a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
+        if {'DPVR G1', 'DPVR G3', 'DPVR G6'} <= names:
+            a.log('enable-g-series-models', 'already visible')
+            return
         tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
         if len(tabs) < 3:
             raise TestBlocked('无法返回含“我的”入口的首页，不能启用 G 系列隐藏型号。')
         tabs[-1].click()
         a.element('my.about', 12).click()
-        for _ in range(10):
-            button = a.wait(lambda: next((e for e in a.driver.find_elements('id', package + ':id/tv_version')
-                                           if e.is_displayed() and e.text == 'VisionRay'), None),
-                            'VisionRay 版本入口', 10)
+        # APP 首击只初始化计时器；后续 10 次、且相邻不足一秒才会切换 G 系列。
+        # 锁定同一控件连续点击，避免逐次查找元素导致点击间隔超时而重新计数。
+        button = a.wait(lambda: next((e for e in a.driver.find_elements('id', package + ':id/tv_version')
+                                      if e.is_displayed() and e.text == 'VisionRay'), None),
+                        'VisionRay 版本入口', 10)
+        for _ in range(11):
             button.click()
-            time.sleep(.3)
+            time.sleep(.15)
         a.driver.press_keycode(4)
         a.wait(lambda: [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()],
                '从 About App 返回我的页面', 12)
         tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
         tabs[0].click()
         a.wait(lambda: a.find('pair.add'), '返回 Add Device 首页', 12)
-        a.log('enable-g-series-models', 'VisionRay clicked 10 times')
+        a.log('enable-g-series-models', 'VisionRay clicked 11 times in rapid succession')
 
     def select_model(self, label):
         a = self.a

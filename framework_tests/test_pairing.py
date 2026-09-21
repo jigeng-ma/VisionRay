@@ -79,6 +79,18 @@ class PopupTests(unittest.TestCase):
         self.assertEqual(a.popups.handle.call_count,7)
 
 class ScrollTests(unittest.TestCase):
+    def test_g_series_switch_uses_one_rapid_eleven_tap_sequence(self):
+        a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
+        tabs=[Mock(),Mock(),Mock()]
+        for tab in tabs: tab.is_displayed.return_value=True
+        name=Mock();name.text='VisionRay';name.is_displayed.return_value=True
+        a.driver.find_elements.return_value=tabs
+        a.wait.side_effect=[Mock(), name, tabs, Mock()]
+        with patch('studio.pairing.time.sleep'):
+            PairingPage(a).enable_g_series_models()
+        self.assertEqual(name.click.call_count,11)
+        self.assertEqual(a.wait.call_count,4)
+
     def test_checks_last_page_even_when_scroll_returns_false(self):
         a=Mock();a.context={'config':{'pairing':{'max_scrolls':12,'model_label_id':'label'}}}
         first=Mock();first.text='DPVR G1'
