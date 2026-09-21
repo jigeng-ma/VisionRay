@@ -3,14 +3,35 @@
 from __future__ import annotations
 
 import argparse
+from http.cookiejar import CookieJar
 import re
 import subprocess
 import time
 import zipfile
 from pathlib import Path
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 OVERSEAS_DOWNLOAD_PAGE = "https://www.pgyer.com/visionray-android-5"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+OPENER = build_opener(HTTPCookieProcessor(CookieJar()))
+
+
+def fetch(url, headers=None):
+    """Fetch Pgyer content with browser headers and one retry for a transient 403."""
+    merged = dict(HEADERS)
+    merged.update(headers or {})
+    for attempt in range(2):
+        try:
+            return OPENER.open(Request(url, headers=merged), timeout=120)
+        except HTTPError as exc:
+            if exc.code != 403 or attempt:
+                raise RuntimeError(f'蒲公英请求失败（HTTP {exc.code}）：{url}') from exc
+            time.sleep(1)
 
 
 def download(build_key: str, target: Path) -> Path:
@@ -19,11 +40,11 @@ def download(build_key: str, target: Path) -> Path:
     if target.exists() and zipfile.is_zipfile(target):
         return target
     offset = target.stat().st_size if target.exists() else 0
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {}
     if offset:
         headers["Range"] = f"bytes={offset}-"
     url = f"https://www.pgyer.com/app/install/{build_key}?time={int(time.time() * 1000)}&lang=cn"
-    with urlopen(Request(url, headers=headers), timeout=120) as response:
+    with fetch(url, headers) as response:
         append = offset and response.status == 206
         with target.open("ab" if append else "wb") as output:
             while chunk := response.read(1024 * 1024):
@@ -40,7 +61,7 @@ def resolve_build(source: str, version: str | None, build: str | None, variant: 
     """Resolve a public Pgyer app page to its build key."""
     if re.fullmatch(r"[0-9a-f]{32}", source):
         return source
-    with urlopen(Request(source, headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
+    with fetch(source) as response:
         page = response.read().decode("utf-8", errors="ignore")
     keys = list(dict.fromkeys(re.findall(r"(?:/app/build/|data-url=[\"']/)([0-9a-f]{32})", page)))
     if not keys:
@@ -53,13 +74,13 @@ def resolve_build(source: str, version: str | None, build: str | None, variant: 
         if key in checked:
             continue
         checked.add(key)
-        with urlopen(Request(f"https://www.pgyer.com/app/build/{key}", headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
+        with fetch(f"https://www.pgyer.com/app/build/{key}") as response:
             detail = response.read().decode("utf-8", errors="ignore")
         # 公开下载页只含当前构建；构建详情页再列出历史 release/debug 版本。
         keys.extend(k for k in re.findall(r"(?:/app/build/|data-url=[\"']/)([0-9a-f]{32})", detail) if k not in checked)
         found_version = re.search(r"aVersion\s*=\s*['\"]([^'\"]+)", detail)
         if not found_version:
-            with urlopen(Request(f"https://www.pgyer.com/{key}", headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
+            with fetch(f"https://www.pgyer.com/{key}") as response:
                 detail = response.read().decode("utf-8", errors="ignore")
             found_version = re.search(r"aVersion\s*=\s*['\"]([^'\"]+)", detail)
         found_build = re.search(r"(?:buildVersion|buildBuildVersion)\s*=\s*['\"]?(\d+)", detail)
