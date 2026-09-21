@@ -10,6 +10,8 @@ import zipfile
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+OVERSEAS_DOWNLOAD_PAGE = "https://www.pgyer.com/visionray-android-5"
+
 
 def download(build_key: str, target: Path) -> Path:
     """Resume the public Pgyer APK download and reject incomplete archives."""

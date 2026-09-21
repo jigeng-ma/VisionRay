@@ -116,6 +116,18 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
             raise ValueError(f'模块「{name}」为空或存在缺失编号，请先修正。')
     entries = registry(root, context['config'].get('product'))
     adb = Adb()
+    version = context.get('app_version', '')
+    if version:
+        from .pgyer import OVERSEAS_DOWNLOAD_PAGE, download, install, resolve_build
+        emit('service', f'正在从蒲公英定位并下载 APP {version}…')
+        build_key = resolve_build(OVERSEAS_DOWNLOAD_PAGE, version, None)
+        safe_version = ''.join(c if c.isalnum() or c in '.-_' else '_' for c in version)
+        apk = download(build_key, root / 'work' / 'downloads' / f'VisionRay-{safe_version}.apk')
+        emit('service', f'正在安装 APP {version}…')
+        install(context['phone'], apk)
+        installed = adb.shell(context['phone'], 'dumpsys', 'package', context['config']['package'])
+        if f'versionName={version}' not in installed:
+            raise RuntimeError(f'安装后的 APP 版本与输入不符：期望 {version}')
     devices = adb.preflight(context['phone'], context['glasses'], context['config']['package'])
     if not context['glasses_name'].strip():
         raise ValueError('请填写眼镜名称。')
