@@ -36,22 +36,38 @@ def download(build_key: str, target: Path) -> Path:
     return target
 
 
-def resolve_build(source: str, version: str | None, build: str | None) -> str:
+def resolve_build(source: str, version: str | None, build: str | None, variant: str | None = None) -> str:
     """Resolve a public Pgyer app page to its build key."""
     if re.fullmatch(r"[0-9a-f]{32}", source):
         return source
     with urlopen(Request(source, headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
         page = response.read().decode("utf-8", errors="ignore")
-    keys = list(dict.fromkeys(re.findall(r"/app/build/([0-9a-f]{32})", page)))
+    keys = list(dict.fromkeys(re.findall(r"(?:/app/build/|data-url=[\"']/)([0-9a-f]{32})", page)))
     if not keys:
         raise RuntimeError("No Pgyer builds were found on the supplied download page.")
-    if not version and not build:
+    if not version and not build and not variant:
         return keys[0]
-    for key in keys:
+    checked = set()
+    while keys:
+        key = keys.pop(0)
+        if key in checked:
+            continue
+        checked.add(key)
         with urlopen(Request(f"https://www.pgyer.com/app/build/{key}", headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
             detail = response.read().decode("utf-8", errors="ignore")
+        # 公开下载页只含当前构建；构建详情页再列出历史 release/debug 版本。
+        keys.extend(k for k in re.findall(r"(?:/app/build/|data-url=[\"']/)([0-9a-f]{32})", detail) if k not in checked)
         found_version = re.search(r"aVersion\s*=\s*['\"]([^'\"]+)", detail)
+        if not found_version:
+            with urlopen(Request(f"https://www.pgyer.com/{key}", headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
+                detail = response.read().decode("utf-8", errors="ignore")
+            found_version = re.search(r"aVersion\s*=\s*['\"]([^'\"]+)", detail)
         found_build = re.search(r"(?:buildVersion|buildBuildVersion)\s*=\s*['\"]?(\d+)", detail)
+        is_debug = bool(found_version and found_version.group(1).endswith('-debug'))
+        if variant == 'debug' and not is_debug:
+            continue
+        if variant == 'release' and is_debug:
+            continue
         if version and (not found_version or found_version.group(1) != version):
             continue
         if build and (not found_build or found_build.group(1) != build):
@@ -73,9 +89,10 @@ def main() -> None:
     parser.add_argument("--serial", required=True, help="ADB device serial")
     parser.add_argument("--version", help="Exact version, e.g. 1.2.39-Occident-debug")
     parser.add_argument("--build", help="Pgyer build number, e.g. 121")
+    parser.add_argument("--variant", choices=("debug", "release"), help="Choose a build variant when version is omitted")
     parser.add_argument("--output", type=Path, default=Path("work/downloads/VisionRay.apk"))
     args = parser.parse_args()
-    build_key = resolve_build(args.source, args.version, args.build)
+    build_key = resolve_build(args.source, args.version, args.build, args.variant)
     apk = download(build_key, args.output)
     print(f"downloaded: {apk} ({apk.stat().st_size} bytes)")
     print(install(args.serial, apk))

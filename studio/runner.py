@@ -116,18 +116,33 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
             raise ValueError(f'模块「{name}」为空或存在缺失编号，请先修正。')
     entries = registry(root, context['config'].get('product'))
     adb = Adb()
-    version = context.get('app_version', '')
-    if version:
-        from .pgyer import OVERSEAS_DOWNLOAD_PAGE, download, install, resolve_build
-        emit('service', f'正在从蒲公英定位并下载 APP {version}…')
-        build_key = resolve_build(OVERSEAS_DOWNLOAD_PAGE, version, None)
-        safe_version = ''.join(c if c.isalnum() or c in '.-_' else '_' for c in version)
+    from .pgyer import OVERSEAS_DOWNLOAD_PAGE, download, install, resolve_build
+    requested_version = context.get('app_version', '')
+    if not requested_version.endswith('-debug'):
+        raise ValueError('执行时必须提供 debug 版本号。')
+    current_variant = None
+
+    def install_variant(variant):
+        nonlocal current_variant
+        if variant not in ('debug', 'release'):
+            raise ValueError(f'未知 APP 版本类型：{variant}')
+        if current_variant == variant:
+            return
+        version = requested_version if variant == 'debug' else requested_version.removesuffix('-debug')
+        emit('service', f'正在从蒲公英定位并下载 {version} {variant} APP…')
+        build_key = resolve_build(OVERSEAS_DOWNLOAD_PAGE, version, None, variant)
+        filename = version
+        safe_version = ''.join(c if c.isalnum() or c in '.-_' else '_' for c in filename)
         apk = download(build_key, root / 'work' / 'downloads' / f'VisionRay-{safe_version}.apk')
-        emit('service', f'正在安装 APP {version}…')
+        emit('service', f'正在安装 {variant} APP…')
         install(context['phone'], apk)
         installed = adb.shell(context['phone'], 'dumpsys', 'package', context['config']['package'])
-        if f'versionName={version}' not in installed:
+        if version and f'versionName={version}' not in installed:
             raise RuntimeError(f'安装后的 APP 版本与输入不符：期望 {version}')
+        current_variant = variant
+
+    # 全部用例默认 debug；仅由用例注册表 app_variant=release 覆盖。
+    install_variant('debug')
     devices = adb.preflight(context['phone'], context['glasses'], context['config']['package'])
     if not context['glasses_name'].strip():
         raise ValueError('请填写眼镜名称。')
@@ -179,6 +194,7 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                 elif item.get('manual'):
                     status, detail = 'BLOCKED', '本版无人值守执行不支持所需实体动作。'
                 else:
+                    install_variant(item.get('app_variant', 'debug'))
                     # 仅在第一条实际 UI 用例前检查服务。未实现、阻塞和筛选掉的用例
                     # 不应因为临时环境没有 Appium 配置而改变其结果。
                     if not appium_ready:

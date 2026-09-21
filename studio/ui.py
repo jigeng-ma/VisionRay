@@ -104,11 +104,11 @@ class App(tk.Tk):
         self.button(actions, '刷新设备', self.refresh_devices).pack(side='left')
         self.button(actions, '连接检查', self.preflight).pack(side='left', padx=6)
         self.button(actions, '启动 / 检查 Appium', self.start_service).pack(side='left')
-        ttk.Label(devices, text='APP 版本号（可选）').grid(row=3, column=0, sticky='w', pady=(4, 0))
+        ttk.Label(devices, text='APP debug 版本号').grid(row=3, column=0, sticky='w', pady=(4, 0))
         version = ttk.Entry(devices, textvariable=self.app_version, width=30)
         version.grid(row=3, column=1, sticky='w', padx=8, pady=(4, 0))
         self.controls.append((version, 'normal'))
-        ttk.Label(devices, text='填写后执行前自动从蒲公英下载安装；留空使用当前已安装版本。').grid(row=3, column=2, columnspan=2, sticky='w')
+        ttk.Label(devices, text='必填；执行前自动从蒲公英下载安装。Google 登录用例会自动改装对应 release 包。').grid(row=3, column=2, columnspan=2, sticky='w')
         ttk.Label(devices, text='输入完整蓝牙名称，自动识别 G1/G3/G6；三款共用功能与用例。').grid(row=4, column=0, columnspan=4, sticky='w')
         skip = ttk.Checkbutton(devices, text='配对后跳过引导（验证进入目标眼镜首页）', variable=self.skip_tutorial)
         skip.grid(row=5, column=0, columnspan=4, sticky='w', pady=(5, 0))
@@ -320,6 +320,10 @@ class App(tk.Tk):
     def start(self):
         try:
             context, mapping = self.context(), self.mapping()
+            if not context['app_version']:
+                raise ValueError('请填写要测试的 debug 版本号，例如 1.2.39-Occident-debug。')
+            if not context['app_version'].endswith('-debug'):
+                raise ValueError('请填写 debug 版本号；release 仅由标注 app_variant=release 的用例自动切换。')
             if mapping != self.loaded_mapping:
                 raise ValueError('列映射已修改，请先点击“重新读取”。')
             if not self.selected:
