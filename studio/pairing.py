@@ -55,8 +55,9 @@ class PairingPage:
             if len(matches) > 1:
                 raise AssertionError('型号名称重复：' + label)
             if matches:
+                selected = matches[0].text
                 matches[0].click()
-                a.log('select-model', matches[0].text)
+                a.log('select-model', selected)
                 return
             signature = tuple(e.text for e in visible)
             if signature in seen:
