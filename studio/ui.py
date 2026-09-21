@@ -4,6 +4,7 @@ from pathlib import Path
 import queue
 import threading
 import hashlib
+import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from .config import catalog, resolve_device, model_from_name
@@ -43,7 +44,8 @@ class App(tk.Tk):
         self.header = tk.StringVar(value='0')
         self.id_col = tk.StringVar(value='A')
         self.result_col = tk.StringVar(value='L')
-        self.app_version = tk.StringVar()
+        self.version_placeholder = '如 1.2.39'
+        self.app_version = tk.StringVar(value=self.version_placeholder)
         self.status = tk.StringVar(value='选择 Excel 和设备，按 Sheet 执行测试')
         self.run_stats = tk.StringVar(value='本轮结果：待执行 0 / 通过 0 / 失败 0')
         self.data = catalog(root)
@@ -104,10 +106,15 @@ class App(tk.Tk):
         self.button(actions, '刷新设备', self.refresh_devices).pack(side='left')
         self.button(actions, '连接检查', self.preflight).pack(side='left', padx=6)
         self.button(actions, '启动 / 检查 Appium', self.start_service).pack(side='left')
-        ttk.Label(devices, text='APP debug 版本号').grid(row=3, column=0, sticky='w', pady=(4, 0))
-        version = ttk.Entry(devices, textvariable=self.app_version, width=30)
+        ttk.Label(devices, text='APP 版本号').grid(row=3, column=0, sticky='w', pady=(4, 0))
+        version_check = self.register(self.validate_version_input)
+        version = ttk.Entry(devices, textvariable=self.app_version, width=16, validate='key', validatecommand=(version_check, '%P'))
         version.grid(row=3, column=1, sticky='w', padx=8, pady=(4, 0))
+        version.configure(foreground='#7a8698')
+        version.bind('<FocusIn>', lambda event: self.edit_version(version))
+        version.bind('<FocusOut>', lambda event: self.restore_version_hint(version))
         self.controls.append((version, 'normal'))
+        ttk.Label(devices, text='-Occident-debug').grid(row=3, column=1, sticky='w', padx=(145, 0))
         ttk.Label(devices, text='必填；执行前自动从蒲公英下载安装。Google 登录用例会自动改装对应 release 包。').grid(row=3, column=2, columnspan=2, sticky='w')
         ttk.Label(devices, text='输入完整蓝牙名称，自动识别 G1/G3/G6；三款共用功能与用例。').grid(row=4, column=0, columnspan=4, sticky='w')
         skip = ttk.Checkbutton(devices, text='配对后跳过引导（验证进入目标眼镜首页）', variable=self.skip_tutorial)
@@ -258,8 +265,23 @@ class App(tk.Tk):
             raise ValueError('请填写眼镜蓝牙完整名称。')
         config = resolve_device(self.root_dir, self.product.get(), self.model.get(), self.glasses_name.get())
         config.setdefault('pairing', {})['skip_tutorial'] = self.skip_tutorial.get()
+        number = self.app_version.get().strip()
+        version = '' if number == self.version_placeholder else f'{number}-Occident-debug'
         return {'phone': phone.serial, 'glasses': glasses.serial if glasses else None, 'glasses_name': self.glasses_name.get().strip(),
-                'config': config, 'app_version': self.app_version.get().strip()}
+                'config': config, 'app_version': version}
+
+    def validate_version_input(self, value):
+        return '..' not in value and bool(re.fullmatch(r'\d*(?:\.\d*)*', value))
+
+    def edit_version(self, entry):
+        if self.app_version.get() == self.version_placeholder:
+            self.app_version.set('')
+            entry.configure(foreground='#000000')
+
+    def restore_version_hint(self, entry):
+        if not self.app_version.get():
+            self.app_version.set(self.version_placeholder)
+            entry.configure(foreground='#7a8698')
 
     def preflight(self):
         try:
@@ -320,10 +342,11 @@ class App(tk.Tk):
     def start(self):
         try:
             context, mapping = self.context(), self.mapping()
+            entered_version = self.app_version.get().strip()
+            if entered_version != self.version_placeholder and not re.fullmatch(r'\d+\.\d+\.\d+', entered_version):
+                raise ValueError('版本号格式应为三段数字，例如 1.2.39。')
             if not context['app_version']:
-                raise ValueError('请填写要测试的 debug 版本号，例如 1.2.39-Occident-debug。')
-            if not context['app_version'].endswith('-debug'):
-                raise ValueError('请填写 debug 版本号；release 仅由标注 app_variant=release 的用例自动切换。')
+                raise ValueError('请填写要测试的版本号，例如 1.2.39。')
             if mapping != self.loaded_mapping:
                 raise ValueError('列映射已修改，请先点击“重新读取”。')
             if not self.selected:
