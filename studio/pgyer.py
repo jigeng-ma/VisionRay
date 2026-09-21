@@ -34,6 +34,22 @@ def fetch(url, headers=None):
             time.sleep(1)
 
 
+def install_url(build_key: str) -> str:
+    """Create the short-lived Pgyer install URL required by historical builds."""
+    with fetch(f"https://www.pgyer.com/{build_key}") as response:
+        page = response.read().decode("utf-8", errors="ignore")
+
+    def variable(name):
+        match = re.search(rf"\b{name}\s*=\s*['\"]([^'\"]+)", page)
+        return match.group(1) if match else ''
+
+    params = [f"time={int(time.time() * 1000)}", "lang=cn"]
+    for name in ("finalCode", "timeSign", "installToken"):
+        if value := variable(name):
+            params.append(f"{name}={value}")
+    return f"https://www.pgyer.com/app/install/{variable('aKey') or build_key}?{'&'.join(params)}"
+
+
 def download(build_key: str, target: Path) -> Path:
     """Resume the public Pgyer APK download and reject incomplete archives."""
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -43,7 +59,7 @@ def download(build_key: str, target: Path) -> Path:
     headers = {}
     if offset:
         headers["Range"] = f"bytes={offset}-"
-    url = f"https://www.pgyer.com/app/install/{build_key}?time={int(time.time() * 1000)}&lang=cn"
+    url = install_url(build_key)
     with fetch(url, headers) as response:
         append = offset and response.status == 206
         with target.open("ab" if append else "wb") as output:
