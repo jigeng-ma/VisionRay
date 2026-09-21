@@ -11,7 +11,7 @@
     ],
     "glasses_adb_required": false,
     "timeout_seconds": 240,
-    "automation_id": "VisionRay_0015"
+    "automation_id": "VisionRay_0001"
   },
   {
     "sheet": "G01_配对",
@@ -25,7 +25,7 @@
     ],
     "glasses_adb_required": false,
     "timeout_seconds": 240,
-    "automation_id": "VisionRay_0016"
+    "automation_id": "VisionRay_0002"
   },
   {
     "sheet": "G01_配对",
@@ -39,7 +39,7 @@
     ],
     "glasses_adb_required": false,
     "timeout_seconds": 240,
-    "automation_id": "VisionRay_0017"
+    "automation_id": "VisionRay_0003"
   },
   {
     "sheet": "G03_首页+设备管理",
