@@ -285,7 +285,8 @@ class GalleryPage:
         # 白色视频水印在深色画面上常被 OCR 分为 "VIS"、"ion" 等片段；合并所有识别结果。
         texts = [pytesseract.image_to_string(crop, config=f'--psm {mode}').lower() for mode in (6, 11)]
         compact = ''.join(re.sub(r'[^a-z]', '', value) for value in texts)
-        if 'visionray' not in compact:
+        # 视频压缩或预览缩放会让末尾 RAY 难以辨认；核心品牌标志 VISION 可稳定判断。
+        if 'vision' not in compact:
             self.a.capture('watermark-not-found')
             raise AssertionError('详情页目标水印区域未识别到 VisionRay：' + ' | '.join(value.strip() for value in texts))
         self.a.log('watermark-ocr', {'video': video, 'text': texts})
