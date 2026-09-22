@@ -35,7 +35,7 @@ class _Page(HTMLParser):
 
 
 class OtaClient:
-    """A session-scoped client. Credentials are read from environment variables only."""
+    """A session-scoped client backed by local configuration or environment variables."""
 
     def __init__(self, email=None, password=None, config_path=PRIVATE_CONFIG):
         config = json.loads(Path(config_path).read_text(encoding="utf-8")) if Path(config_path).is_file() else {}
@@ -120,10 +120,21 @@ class OtaClient:
         self.login()
         page = self._get(self.ota_path)
         modal = self._component(page, "common.confirm-modal")
+        ota_list = self._component(page, "versions.ota-version-list")
+        target = 1 if action == "online" else 0
+        verb = "上线" if action == "online" else "下线"
         answer = self._post(modal, [{"path": "", "method": "__dispatch", "params": ["showConfirm", {
-            "title": "", "subtitle": "", "action": action, "primaryKey": str(task_id)}]}], self.ota_path)
+            "title": f"确定{verb}?", "subtitle": f"您即将{verb}当前数据。", "action": action,
+            "primaryKey": str(task_id)}]}], self.ota_path)
         confirmation = self._response_snapshot(answer, "common.confirm-modal")
         self._post(confirmation, [{"path": "", "method": "confirmSubmit", "params": []}], self.ota_path)
+        # Livewire 的确认框只派发 stateChange；浏览器随后会把事件交给 OTA 列表组件。
+        # HTTP 自动化需要显式完成这一步，才会真正更新任务状态。
+        self._post(ota_list, [{"path": "", "method": "__dispatch", "params": ["stateChange", {
+            "id": str(task_id), "target": target}]}], self.ota_path)
+        expected = f"operation-{task_id}-state-{target}"
+        if expected not in self._get(self.ota_path):
+            raise RuntimeError(f"任务 {task_id} 状态未生效，后台未返回 {expected}。")
         return {"task_id": task_id, "action": action, "status": "APPLIED"}
 
 
