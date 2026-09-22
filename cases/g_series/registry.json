@@ -966,5 +966,90 @@
     "glasses_adb_required": false,
     "timeout_seconds": 1500,
     "execution_order": 40
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_005", "automation_id": "VisionRay_0108",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_005]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600, "app_variant": "release"
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_007", "automation_id": "VisionRay_0109",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_007]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_008", "automation_id": "VisionRay_0110",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_008]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_009", "automation_id": "VisionRay_0111",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_009]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_010", "automation_id": "VisionRay_0112",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_010]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_013", "automation_id": "VisionRay_0113",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_013]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_014", "automation_id": "VisionRay_0114",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_014]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_020", "automation_id": "VisionRay_0115",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_020]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_025", "automation_id": "VisionRay_0116",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_025]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_030", "automation_id": "VisionRay_0117",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_030]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_032", "automation_id": "VisionRay_0118",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_032]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_033", "automation_id": "VisionRay_0119",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_033]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 900
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_037", "automation_id": "VisionRay_0120",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_037]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 2100
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_038", "automation_id": "VisionRay_0121",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_038]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 900
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_041", "automation_id": "VisionRay_0122",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_041]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 900
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_047", "automation_id": "VisionRay_0123",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_047]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 1200
+  },
+  {
+    "sheet": "G00_登录注册", "id": "C-L_048", "automation_id": "VisionRay_0124",
+    "node": "cases/g_series/test_auth.py::test_auth[AUTH_048]", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 600
   }
 ]

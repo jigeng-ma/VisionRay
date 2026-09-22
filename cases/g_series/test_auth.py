@@ -6,12 +6,13 @@ from studio.errors import TestBlocked
 
 
 # 只列出有完整动作和断言的用例；未实现项不注册占位测试。
-IMPLEMENTED = [1, 3, 4, 6, 11, 12, 15, 16, 17, 18, 19, 22, 23, 26, 27,
+IMPLEMENTED = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 25, 26, 27,
                24, 28, 29, 31, 34, 40, 42, 43, 44, 45, 46, 49,
                50, 51, 52, 53, 55, 56, 57, 58, 59, 62, 67, 71, 72, 73, 74,
-               76, 78, 79, 80, 81, 82, 87, 88, 89, 90, 91, 93, 94, 95]
-REGISTRATION = {24, 28, 29, 31, 34, 40, 42, 43, 44, 45, 46, 49}
-REG_PASSWORD = {42, 43, 44, 45, 46, 49}
+               76, 78, 79, 80, 81, 82, 87, 88, 89, 90, 91, 93, 94, 95,
+               30, 32, 33, 37, 38, 41, 47, 48]
+REGISTRATION = {24, 28, 29, 30, 31, 32, 33, 34, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49}
+REG_PASSWORD = {42, 43, 44, 45, 46, 47, 48, 49}
 RESET_PASSWORD = {72, 73, 74, 78}
 
 
@@ -71,6 +72,16 @@ def run_case(p, n):
             p.text('Account').click()
             for label in ('Log in with Email', 'Log in with Google', 'Create Account'):
                 p.text(label)
+    elif n == 5:
+        p.login_page()
+        p.click('tv_login_by_google')
+        account = p.a.wait(lambda: next((e for e in p.d.find_elements(
+            'xpath', "//*[@text='majigeng2016@163.com']") if e.is_displayed()), None),
+                           'Google 账号 majigeng2016@163.com', 15)
+        account.click()
+        p.a.wait(lambda: p.has('tabIcon'), 'Google 登录成功', 30)
+        p.home(); p.text('Account').click(); p.click('tv_logout'); p.click('tv_cancel')
+        p.el('tv_login_by_email')
     elif n == 6:
         p.login_page()
         for key in ('et_email', 'et_pwd', 'iv_hide_pwd', 'tv_login_btn', 'tv_forgot_pwd', 'back_iv'):
@@ -81,6 +92,48 @@ def run_case(p, n):
     elif n == 11:
         p.login_page()
         p.eye(1)
+    elif n in (7, 8):
+        p.login_page()
+        title = 'User Agreement' if n == 7 else 'Privacy Policy'
+        p.click_privacy_link(title)
+        p.assert_page_title(title)
+        p.d.back(); p.text('Log in Your Account')
+    elif n in (9, 10):
+        p.login_page()
+        p.fill('et_email', '' if n == 9 else EMAIL)
+        p.fill('et_pwd', '123456')
+        p.disabled_login_stays_here()
+    elif n == 13:
+        adb = Adb(); serial = p.a.context['phone']
+        original = adb.shell(serial, 'settings', 'get', 'system', 'time_12_24')
+        try:
+            for value in ('12', '24'):
+                adb.shell(serial, 'settings', 'put', 'system', 'time_12_24', value)
+                p.registered(verify_password=True)
+                p.entry(); p.login()
+        finally:
+            if original and original != 'null':
+                adb.shell(serial, 'settings', 'put', 'system', 'time_12_24', original)
+            else:
+                adb.shell(serial, 'settings', 'delete', 'system', 'time_12_24')
+    elif n == 14:
+        p.login_page(); p.fill('et_email', 'a@b'); p.fill('et_pwd', '123456')
+        p.disabled_login_stays_here()
+    elif n == 20:
+        p.login_page(); p.fill('et_email', EMAIL); p.fill('et_pwd', PASSWORD)
+        adb = Adb(); serial = p.a.context['phone']
+        try:
+            adb.shell(serial, 'svc', 'wifi', 'disable')
+            adb.shell(serial, 'svc', 'data', 'disable')
+            p.click('tv_login_btn')
+            p.a.wait(lambda: any(e.is_displayed() and e.get_attribute('className') == 'android.widget.Toast'
+                                 for e in p.d.find_elements('xpath', '//*')) or p.has('tvDesc'),
+                     '断网登录失败提示', 12)
+            p.text('Log in Your Account')
+        finally:
+            adb.shell(serial, 'svc', 'wifi', 'enable')
+            adb.shell(serial, 'svc', 'data', 'enable')
+        p.login()
     elif n == 12:
         p.login()
         p.account()
@@ -124,7 +177,14 @@ def run_case(p, n):
             if n == 27:
                 p.fill('et_email', 'abc')
                 assert p.value('et_email') == 'abc'
-    elif n in (24, 28, 29, 31, 34, 40):
+    elif n == 25:
+        p.email_page('register')
+        checkpoint = p.mail.checkpoint()
+        p.fill('et_email', 'abc')
+        p.click('tv_email_next')
+        p.unchanged('layout_email')
+        p.no_new_mail(checkpoint)
+    elif n in (24, 28, 29, 30, 31, 32, 33, 34, 37, 38, 40, 41):
         check_code(p, n, code, 'register')
     elif n in (42, 43, 44, 45, 46, 49, 72, 73, 74, 78):
         if n in (42, 72):
@@ -308,9 +368,66 @@ def check_code(p, n, code, mode):
             assert not p.el('tv_captcha_next').is_enabled()
             p.click('tv_captcha_next')
             p.unchanged('layout_captcha')
+    elif n == 30:
+        for value in ('abc', '!?', '12a345', '1234567'):
+            for index in range(1, 7):
+                p.el(f'et_code{index}').clear()
+            p.el('et_code1').send_keys(value)
+            p.hide_keyboard()
+            assert not p.el('tv_captcha_next').is_enabled(), f'非法验证码 {value!r} 不应通过本地校验'
+            p.unchanged('layout_captcha')
     elif n in (31, 62):
         p.verify(code, mode)
+    elif n == 32:
+        p.enter_code('000000')
+        p.click('tv_captcha_next')
+        assert p.el('tv_title').text == 'Incorrect verification code'
+        p.click('tv_confirm')
+        p.text('Enter your verification code')
+    elif n == 33:
+        p.enter_code('000000')
+        p.click('tv_captcha_next')
+        assert p.el('tv_title').text == 'Incorrect verification code'
+        p.click('tv_confirm')
+        p.verify(code, mode)
+        p.complete_registration(); p.delete()
     elif n in (34, 40, 67):
         p.a.wait(lambda: p.el('tv_resend_captcha').is_enabled(), '允许重新发送', 75)
         p.resend_code()
         assert EMAIL in p.el('tv_summary').text
+    elif n == 37:
+        # 验证码有效期为 30 分钟；每分钟触碰一次 UI，避免 Appium 空闲会话超时。
+        for minute in range(28):
+            __import__('time').sleep(60)
+            p.a.capture(f'AUTH_037-wait-{minute + 1:02d}m')
+        p.verify(code, mode)
+        p.complete_registration(); p.delete()
+    elif n == 38:
+        second = p.resend_code()
+        p.enter_code(code)
+        p.click('tv_captcha_next')
+        assert p.el('tv_title').text == 'Incorrect verification code'
+        p.click('tv_confirm')
+        p.verify(second, mode)
+        p.complete_registration(); p.delete()
+    elif n == 41:
+        p.enter_code('000000')
+        p.click('tv_captcha_next')
+        assert p.el('tv_title').text == 'Incorrect verification code'
+        p.click('tv_confirm')
+        p.click('tv_update_email_address')
+        p.text("What's your email?")
+        p.fill('et_email', EMAIL)
+        fresh = p.new_code(lambda: p.request_code(lambda: p.click('tv_email_next')))
+        p.verify(fresh, mode)
+        p.complete_registration(); p.delete()
+    elif n == 47:
+        p.fill('et_pwd', 'Qa1!z9')
+        assert p.el('tv_pwd_ok').is_enabled()
+        p.complete_registration('Qa1!z9')
+        p.entry(); p.login('Qa1!z9')
+        p.reset(PASSWORD); p.login(); p.password_changed = False
+    elif n == 48:
+        for value in (' Qa1!z9', 'Qa1!z9 ', 'Qa 1!z9'):
+            p.fill('et_pwd', value)
+            assert p.value('et_pwd') == value.replace(' ', ''), '密码输入端未过滤空格'

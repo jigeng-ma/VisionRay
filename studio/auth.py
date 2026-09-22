@@ -54,6 +54,43 @@ class AuthPage:
             field.send_keys(value)
         self.hide_keyboard()
 
+    def disabled_login_stays_here(self):
+        """空值、非法邮箱等本地校验：按钮不可用且等待后仍留在登录页。"""
+        button = self.el('tv_login_btn')
+        assert not button.is_enabled(), '不合法登录输入时 Log in 应置灰'
+        button.click()
+        time.sleep(3)
+        self.text('Log in Your Account')
+        assert not self.has('tabIcon'), '不合法登录输入意外进入已登录页'
+
+    def click_privacy_link(self, label):
+        """兼容协议文本未单独暴露为 UI 节点的版本。"""
+        links = [e for e in self.d.find_elements('xpath', f'//*[@package="{self.package}" and @text="{label}"]')
+                 if e.is_displayed()]
+        if len(links) == 1:
+            links[0].click()
+            return
+        text = self.el('tv_privacy')
+        content = text.text
+        start = content.find(label)
+        if start < 0:
+            raise TestBlocked(f'登录页未显示协议链接：{label}')
+        rect = text.rect
+        # 文本链接没有独立资源 ID 时，按链接在整行中的字符位置点击。
+        x = int(rect['x'] + rect['width'] * (start + len(label) / 2) / len(content))
+        y = int(rect['y'] + rect['height'] / 2)
+        self.d.execute_script('mobile: clickGesture', {'x': x, 'y': y})
+
+    def assert_page_title(self, title):
+        self.a.wait(lambda: any(e.is_displayed() and title.lower() in e.text.lower()
+                                for e in self.d.find_elements('xpath', f'//*[@package="{self.package}" and @text]')),
+                    title + ' 页面标题', 20)
+
+    def no_new_mail(self, checkpoint):
+        time.sleep(3)
+        latest = self.mail.checkpoint()
+        assert latest['uid'] == checkpoint['uid'], '本不应发送验证码，但邮箱收到了新邮件'
+
     def value(self, resource):
         field = self.el(resource)
         value = field.text
@@ -184,7 +221,7 @@ class AuthPage:
         self.a.log('auth-prepare', f'AUTH_{number:03d}')
         # 页面检查不依赖服务端账号；不能为检查空输入而强制登录或注册。
         neutral = {1, 3, 4, 6, 11, 22, 23, 50, 51, 52, 57}
-        absent = {15, 16, 17, 24, 28, 29, 31, 34, 40, 42, 43, 44, 45, 46, 49, 55, 56}
+        absent = {15, 16, 17, 24, 28, 29, 30, 31, 32, 33, 34, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 55, 56}
         try:
             if number in absent:
                 self.unregistered()
@@ -334,6 +371,10 @@ class AuthPage:
 
     def register(self, password=PASSWORD):
         self.password_page('register')
+        self.complete_registration(password)
+
+    def complete_registration(self, password=PASSWORD):
+        """当前已在 Create password 页时提交注册，避免重复发送验证码。"""
         self.fill('et_pwd', password)
         self.click('tv_pwd_ok')
         self.a.wait(lambda: self.has('tabIcon'), '注册后自动登录', 25)
