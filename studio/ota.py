@@ -140,10 +140,28 @@ class OtaClient:
             raise RuntimeError(f"任务 {task_id} 状态未生效，后台未返回 {expected}。")
         return {"task_id": task_id, "action": action, "status": "APPLIED"}
 
+    def set_force(self, task_id: int, enabled: bool, apply=False):
+        """Set whether a glasses firmware OTA task is mandatory."""
+        if not isinstance(task_id, int) or task_id <= 0:
+            raise ValueError("task_id 必须是正整数。")
+        if not apply:
+            return {"task_id": task_id, "force": enabled, "status": "DRY_RUN"}
+        self.login()
+        edit = self._component(self._get(self.ota_path), "versions.edit-ota")
+        loaded = self._post(edit, [{"path": "", "method": "__dispatch", "params": ["edit", {"id": str(task_id)}]}], self.ota_path)
+        snapshot = self._response_snapshot(loaded, "versions.edit-ota")
+        answer = self._post(snapshot, [{"path": "", "method": "save", "params": []}], self.ota_path,
+                            {"force": "1" if enabled else "0"})
+        saved = self._response_snapshot(answer, "versions.edit-ota")
+        actual = json.loads(saved)["data"].get("force")
+        if str(actual) != ("1" if enabled else "0"):
+            raise RuntimeError(f"任务 {task_id} 强制升级设置未生效：{actual}")
+        return {"task_id": task_id, "force": enabled, "status": "APPLIED"}
+
 
 def main():
     parser = argparse.ArgumentParser(description="按 OTA 任务 ID 上线或下线固件")
-    parser.add_argument("action", choices=("online", "offline"))
+    parser.add_argument("action", choices=("online", "offline", "force", "optional"))
     parser.add_argument("task_id", type=int, nargs="?", help="眼镜固件 OTA 任务 ID")
     parser.add_argument("--target", help="配置目标，如 flow_echo_pilot.bluetooth")
     parser.add_argument("--targets-config", type=Path, default=TARGET_CONFIG, help="OTA 版本目标配置路径")
@@ -154,7 +172,9 @@ def main():
         parser.error("请且只能提供 task_id 或 --target。")
     info = target_info(args.target, "glasses", args.targets_config) if args.target else {}
     task_id = args.task_id or task_from_target(args.target, "glasses", args.targets_config)
-    result = OtaClient(config_path=args.config).set_state(task_id, args.action, args.apply)
+    client = OtaClient(config_path=args.config)
+    result = (client.set_force(task_id, args.action == "force", args.apply)
+              if args.action in ("force", "optional") else client.set_state(task_id, args.action, args.apply))
     if args.target:
         result.update(target=args.target, expected_version=info.get("version", ""))
     print(json.dumps(result, ensure_ascii=False))
