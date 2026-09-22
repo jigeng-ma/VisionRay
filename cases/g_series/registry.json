@@ -922,5 +922,49 @@
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 120
+  },
+  {
+    "sheet": "G09_固件更新",
+    "id": "F-OTA_001",
+    "automation_id": "VisionRay_0104",
+    "node": "cases/g_series/test_firmware_ota.py::test_bluetooth_firmware_update",
+    "requires": ["pairing"],
+    "models": ["G1", "G3", "G6"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1500,
+    "execution_order": 10
+  },
+  {
+    "sheet": "G09_固件更新",
+    "id": "F-OTA_002",
+    "automation_id": "VisionRay_0105",
+    "node": "cases/g_series/test_firmware_ota.py::test_wifi_firmware_update",
+    "requires": ["pairing"],
+    "models": ["G1", "G3", "G6"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1500,
+    "execution_order": 20
+  },
+  {
+    "sheet": "G09_固件更新",
+    "id": "F-OTA_003",
+    "automation_id": "VisionRay_0106",
+    "node": "cases/g_series/test_firmware_ota.py::test_bluetooth_forced_update_on_start",
+    "requires": ["pairing"],
+    "models": ["G1", "G3", "G6"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1500,
+    "execution_order": 30
+  },
+  {
+    "sheet": "G09_固件更新",
+    "id": "F-OTA_004",
+    "automation_id": "VisionRay_0107",
+    "node": "cases/g_series/test_firmware_ota.py::test_wifi_optional_update_on_start",
+    "requires": ["pairing"],
+    "models": ["G1", "G3", "G6"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1500,
+    "execution_order": 40
   }
 ]
