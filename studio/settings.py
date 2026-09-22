@@ -13,6 +13,22 @@ class SettingsPage:
         self.home.setting('DP AI')
         self.home.assert_page('DP AI Settings', 'Voice Type')
 
+    def ai_from_history(self):
+        """必须从 AI 对话记录页右上角设置进入，不能绕过入口直达设置页。"""
+        self.home.home()
+        labels = ('AI Conversation History', 'AI Chat History', 'AI Conversation', 'AI Chat')
+        entry = next((self.home._labeled('tv_grid_title', label) for label in labels
+                      if any(e.is_displayed() and e.text == label for e in self.a.driver.find_elements(
+                          'id', self.package + ':id/tv_grid_title'))), None)
+        if not entry:
+            raise TestBlocked('首页未找到 AI 对话记录入口。')
+        entry.click()
+        setting = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath',
+            f"//*[@package='{self.package}' and (contains(@resource-id, 'setting') or @content-desc='Settings')]")
+            if e.is_displayed() and e.is_enabled()), None), 'AI 对话记录页右上角设置按钮', 12)
+        setting.click()
+        self.home.assert_page('DP AI Settings', 'Voice Type')
+
     def capture(self):
         self.home.setting('Capture')
         self.home.assert_page('Capture Settings', 'Photo Watermark')
@@ -32,6 +48,34 @@ class SettingsPage:
         if control.get_attribute('checked') != 'true':
             control.click()
         self.a.wait(lambda: self.one(resource).get_attribute('checked') == 'true', resource + ' 已开启', 8)
+
+    def toggle_round_trip(self, resource):
+        control = self.one(resource)
+        original = control.get_attribute('checked') == 'true'
+        control.click()
+        self.a.wait(lambda: (self.one(resource).get_attribute('checked') == 'true') != original,
+                    resource + ' 切换', 8)
+        self.one(resource).click()
+        self.a.wait(lambda: (self.one(resource).get_attribute('checked') == 'true') == original,
+                    resource + ' 恢复', 8)
+
+    def toggle_labeled(self, labels):
+        """按设置文案定位开关，兼容不同版本的 wake-up 资源 ID。"""
+        label = next((self.home.text(value, 3) for value in labels
+                      if any(e.is_displayed() and e.text == value for e in self.a.driver.find_elements('xpath',
+                          f"//*[@package='{self.package}' and @text]"))), None)
+        if not label:
+            raise TestBlocked('未找到设置项：' + ' / '.join(labels))
+        row = label.find_element('xpath', '..')
+        switches = [e for e in row.find_elements('xpath', ".//*[@checkable='true']") if e.is_displayed()]
+        if len(switches) != 1:
+            raise AssertionError('语音唤醒开关未唯一定位。')
+        original = switches[0].get_attribute('checked') == 'true'
+        switches[0].click()
+        self.a.wait(lambda: next((e for e in row.find_elements('xpath', ".//*[@checkable='true']")
+                                  if e.is_displayed()), None).get_attribute('checked') == ('false' if original else 'true'),
+                    '语音唤醒开关切换', 8)
+        row.find_elements('xpath', ".//*[@checkable='true']")[0].click()
 
     def tutorial(self, title):
         item = self.home.text(title)

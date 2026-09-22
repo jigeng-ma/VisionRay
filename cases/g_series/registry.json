@@ -837,7 +837,7 @@
     "sheet": "G07_拍摄设置",
     "id": "Cam_001",
     "automation_id": "VisionRay_0094",
-    "node": "cases/g_series/test_settings.py::test_capture_watermarks_and_auto_save_controls",
+    "node": "cases/g_series/test_settings.py::test_photo_watermark_download",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -846,7 +846,7 @@
     "sheet": "G07_拍摄设置",
     "id": "Cam_002",
     "automation_id": "VisionRay_0095",
-    "node": "cases/g_series/test_settings.py::test_capture_watermarks_and_auto_save_controls",
+    "node": "cases/g_series/test_settings.py::test_photo_watermark_share",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -855,7 +855,7 @@
     "sheet": "G07_拍摄设置",
     "id": "Cam_003",
     "automation_id": "VisionRay_0096",
-    "node": "cases/g_series/test_settings.py::test_capture_watermarks_and_auto_save_controls",
+    "node": "cases/g_series/test_settings.py::test_video_watermark",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -864,7 +864,7 @@
     "sheet": "G07_拍摄设置",
     "id": "Cam_004",
     "automation_id": "VisionRay_0097",
-    "node": "cases/g_series/test_settings.py::test_capture_watermarks_and_auto_save_controls",
+    "node": "cases/g_series/test_settings.py::test_auto_save_album",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -876,7 +876,7 @@
     "node": "cases/g_series/test_settings.py::test_capture_video_duration",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 900
+    "timeout_seconds": 2100
   },
   {
     "sheet": "G08_系统设置",

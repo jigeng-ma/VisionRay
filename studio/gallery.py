@@ -3,6 +3,7 @@ import os
 import re
 import sqlite3
 import tempfile
+import io
 from .errors import TestBlocked
 
 
@@ -260,6 +261,40 @@ class GalleryPage:
     def download(self):
         self.action('ll_download', '下载')
         self.a.wait(lambda: not self.all('ll_download') or self.one('ll_download').is_enabled(), '下载完成', 60)
+
+    def share(self):
+        self.action('ll_share', '分享')
+        self.a.wait(lambda: self.d.current_package != self.package, '系统分享面板', 12)
+
+    def assert_visionray_watermark(self, video=False):
+        """OCR 校验详情页实际渲染的水印，图片取底部、视频取左下角。"""
+        try:
+            from PIL import Image
+            import pytesseract
+        except ImportError as error:
+            raise TestBlocked('缺少图片 OCR 依赖，无法校验水印。') from error
+        image = Image.open(io.BytesIO(self.d.get_screenshot_as_png()))
+        width, height = image.size
+        crop = image.crop((0, int(height * .62), int(width * .58 if video else 1), height))
+        text = pytesseract.image_to_string(crop.resize((crop.width * 3, crop.height * 3))).lower()
+        if 'visionray' not in ''.join(text.split()):
+            self.a.capture('watermark-not-found')
+            raise AssertionError('详情页目标水印区域未识别到 VisionRay。')
+        self.a.log('watermark-ocr', {'video': video, 'text': text.strip()})
+
+    def assert_latest_video_duration(self, expected_seconds, tolerance=5):
+        """读取最新视频缩略图卡片显示的 mm:ss，并允许给定误差。"""
+        self.open()
+        card = self.media()[0].find_element('xpath', '..')
+        values = [e.text for e in card.find_elements('xpath', './/*[@text]') if e.text]
+        matches = [value for value in values if re.fullmatch(r'\d{1,2}:\d{2}', value.strip())]
+        if len(matches) != 1:
+            raise TestBlocked('无法从最新视频缩略图唯一读取时长：' + ' | '.join(values))
+        minutes, seconds = map(int, matches[0].split(':'))
+        actual = minutes * 60 + seconds
+        if abs(actual - expected_seconds) > tolerance:
+            raise AssertionError(f'视频缩略图时长应为 {expected_seconds}±{tolerance} 秒，实际 {matches[0]}。')
+        self.a.log('video-thumbnail-duration', {'actual': actual, 'expected': expected_seconds})
 
     def play_pause(self):
         self.action('play_btn', '播放')
