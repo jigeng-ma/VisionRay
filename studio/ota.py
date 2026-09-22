@@ -158,6 +158,16 @@ class OtaClient:
             raise RuntimeError(f"任务 {task_id} 强制升级设置未生效：{actual}")
         return {"task_id": task_id, "force": enabled, "status": "APPLIED"}
 
+    def activate_only(self, task_id: int, candidates: tuple[int, ...], apply=False):
+        """Keep exactly one test firmware task online before an OTA test."""
+        if task_id not in candidates:
+            raise ValueError("目标任务不在测试固件列表中。")
+        if not apply:
+            return {"task_id": task_id, "online": [task_id], "offline": [i for i in candidates if i != task_id], "status": "DRY_RUN"}
+        for candidate in candidates:
+            self.set_state(candidate, "online" if candidate == task_id else "offline", apply=True)
+        return {"task_id": task_id, "online": [task_id], "offline": [i for i in candidates if i != task_id], "status": "APPLIED"}
+
 
 def main():
     parser = argparse.ArgumentParser(description="按 OTA 任务 ID 上线或下线固件")
