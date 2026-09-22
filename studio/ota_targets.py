@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
+import configparser
 from pathlib import Path
-import tomllib
 
 
-TARGET_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "ota_versions.toml"
+TARGET_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "ota_versions.ini"
 
 
 def target_info(target: str, group: str, config_path: Path = TARGET_CONFIG) -> dict:
-    with config_path.open("rb") as file:
-        data = tomllib.load(file)
-    node = data[group] if group else data
-    for part in target.split("."):
-        node = node[part]
-    if not isinstance(node, dict):
-        raise ValueError(f"配置目标 {target} 格式无效。")
-    return node
+    parser = configparser.ConfigParser()
+    parser.read(config_path, encoding="utf-8")
+    section = '.'.join(part for part in (group, target) if part)
+    if section not in parser:
+        raise ValueError(f"配置未找到目标区段 [{section}]。")
+    node = parser[section]
+    return {"task_id": node.getint("task_id", fallback=0), "version": node.get("version", fallback="")}
 
 
 def task_from_target(target: str, group: str, config_path: Path = TARGET_CONFIG) -> int:
