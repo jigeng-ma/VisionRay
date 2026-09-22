@@ -4,6 +4,7 @@ import re
 import sqlite3
 import tempfile
 import io
+from pathlib import Path
 from .errors import TestBlocked
 
 
@@ -273,14 +274,21 @@ class GalleryPage:
             import pytesseract
         except ImportError as error:
             raise TestBlocked('缺少图片 OCR 依赖，无法校验水印。') from error
+        executable = os.environ.get('TESSERACT_CMD', r'D:\APP\tesseract.exe')
+        if not Path(executable).is_file():
+            raise TestBlocked('未找到 Tesseract：' + executable)
+        pytesseract.pytesseract.tesseract_cmd = executable
         image = Image.open(io.BytesIO(self.d.get_screenshot_as_png()))
         width, height = image.size
-        crop = image.crop((0, int(height * .62), int(width * .58 if video else 1), height))
-        text = pytesseract.image_to_string(crop.resize((crop.width * 3, crop.height * 3))).lower()
-        if 'visionray' not in ''.join(text.split()):
+        crop = image.crop((0, int(height * (.72 if video else .80)), int(width * (.58 if video else 1)), height))
+        crop = crop.resize((crop.width * 4, crop.height * 4))
+        # 白色视频水印在深色画面上常被 OCR 分为 "VIS"、"ion" 等片段；合并所有识别结果。
+        texts = [pytesseract.image_to_string(crop, config=f'--psm {mode}').lower() for mode in (6, 11)]
+        compact = ''.join(re.sub(r'[^a-z]', '', value) for value in texts)
+        if 'visionray' not in compact:
             self.a.capture('watermark-not-found')
-            raise AssertionError('详情页目标水印区域未识别到 VisionRay。')
-        self.a.log('watermark-ocr', {'video': video, 'text': text.strip()})
+            raise AssertionError('详情页目标水印区域未识别到 VisionRay：' + ' | '.join(value.strip() for value in texts))
+        self.a.log('watermark-ocr', {'video': video, 'text': texts})
 
     def assert_latest_video_duration(self, expected_seconds, tolerance=5):
         """读取最新视频缩略图卡片显示的 mm:ss，并允许给定误差。"""
