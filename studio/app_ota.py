@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from .ota import OtaClient
-from .ota_targets import TARGET_CONFIG, task_from_target
+from .ota_targets import TARGET_CONFIG, target_info, task_from_target
 
 
 PRIVATE_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "app_ota_private.json"
@@ -24,8 +24,12 @@ def main():
     args = parser.parse_args()
     if bool(args.task_id) == bool(args.target):
         parser.error("请且只能提供 task_id 或 --target。")
+    info = target_info(args.target, "", args.targets_config) if args.target else {}
     task_id = args.task_id or task_from_target(args.target, "", args.targets_config)
-    print(json.dumps(OtaClient(config_path=args.config).set_state(task_id, args.action, args.apply), ensure_ascii=False))
+    result = OtaClient(config_path=args.config).set_state(task_id, args.action, args.apply)
+    if args.target:
+        result.update(target=args.target, expected_version=info.get("version", ""))
+    print(json.dumps(result, ensure_ascii=False))
 
 
 if __name__ == "__main__":
