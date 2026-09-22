@@ -4,7 +4,7 @@ import re
 import sqlite3
 import tempfile
 import io
-from pathlib import Path
+import shutil
 from .errors import TestBlocked
 
 
@@ -274,9 +274,9 @@ class GalleryPage:
             import pytesseract
         except ImportError as error:
             raise TestBlocked('缺少图片 OCR 依赖，无法校验水印。') from error
-        executable = os.environ.get('TESSERACT_CMD', r'D:\APP\tesseract.exe')
-        if not Path(executable).is_file():
-            raise TestBlocked('未找到 Tesseract：' + executable)
+        executable = os.environ.get('TESSERACT_CMD') or shutil.which('tesseract')
+        if not executable:
+            raise TestBlocked('未找到 Tesseract；请将 tesseract.exe 加入系统 PATH，或设置 TESSERACT_CMD。')
         pytesseract.pytesseract.tesseract_cmd = executable
         image = Image.open(io.BytesIO(self.d.get_screenshot_as_png()))
         width, height = image.size
