@@ -11,6 +11,8 @@ import re
 from http.cookiejar import CookieJar
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
+from .ota_targets import TARGET_CONFIG, task_from_target
+
 
 DEFAULT_BASE_URL = "https://test.dpvr.com"
 PRIVATE_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "ota_private.json"
@@ -142,11 +144,16 @@ class OtaClient:
 def main():
     parser = argparse.ArgumentParser(description="按 OTA 任务 ID 上线或下线固件")
     parser.add_argument("action", choices=("online", "offline"))
-    parser.add_argument("task_id", type=int)
+    parser.add_argument("task_id", type=int, nargs="?", help="眼镜固件 OTA 任务 ID")
+    parser.add_argument("--target", help="配置目标，如 flow_echo_pilot.bluetooth")
+    parser.add_argument("--targets-config", type=Path, default=TARGET_CONFIG, help="OTA 版本目标配置路径")
     parser.add_argument("--apply", action="store_true", help="实际提交状态变更；省略时只预览")
     parser.add_argument("--config", type=Path, default=PRIVATE_CONFIG, help="私密 OTA 配置文件路径")
     args = parser.parse_args()
-    print(json.dumps(OtaClient(config_path=args.config).set_state(args.task_id, args.action, args.apply), ensure_ascii=False))
+    if bool(args.task_id) == bool(args.target):
+        parser.error("请且只能提供 task_id 或 --target。")
+    task_id = args.task_id or task_from_target(args.target, "glasses", args.targets_config)
+    print(json.dumps(OtaClient(config_path=args.config).set_state(task_id, args.action, args.apply), ensure_ascii=False))
 
 
 if __name__ == "__main__":
