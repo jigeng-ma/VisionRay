@@ -1,4 +1,5 @@
 configs/mail_private.json
+configs/ota_private.json
 
 # Local and generated artifacts
 .codex/

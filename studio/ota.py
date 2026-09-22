@@ -6,12 +6,14 @@ import argparse
 from html.parser import HTMLParser
 import json
 import os
+from pathlib import Path
 import re
 from http.cookiejar import CookieJar
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 
-BASE_URL = "https://test.dpvr.com"
+DEFAULT_BASE_URL = "https://test.dpvr.com"
+PRIVATE_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "ota_private.json"
 
 
 class _Page(HTMLParser):
@@ -35,14 +37,17 @@ class _Page(HTMLParser):
 class OtaClient:
     """A session-scoped client. Credentials are read from environment variables only."""
 
-    def __init__(self, email=None, password=None):
-        self.email = email or os.environ.get("VISIONRAY_OTA_EMAIL", "")
-        self.password = password or os.environ.get("VISIONRAY_OTA_PASSWORD", "")
+    def __init__(self, email=None, password=None, config_path=PRIVATE_CONFIG):
+        config = json.loads(Path(config_path).read_text(encoding="utf-8")) if Path(config_path).is_file() else {}
+        self.base_url = config.get("base_url", DEFAULT_BASE_URL).rstrip("/")
+        self.ota_path = config.get("ota_path", "/otas")
+        self.email = email or os.environ.get("VISIONRAY_OTA_EMAIL") or config.get("email", "")
+        self.password = password or os.environ.get("VISIONRAY_OTA_PASSWORD") or config.get("password", "")
         self.opener = build_opener(HTTPCookieProcessor(CookieJar()))
         self.csrf = ""
 
     def _get(self, path):
-        request = Request(BASE_URL + path, headers={"Accept": "text/html", "User-Agent": "VisionRay-OtaAutomation/1.0"})
+        request = Request(self.base_url + path, headers={"Accept": "text/html", "User-Agent": "VisionRay-OtaAutomation/1.0"})
         with self.opener.open(request, timeout=30) as response:
             return response.read().decode("utf-8", errors="replace")
 
@@ -72,10 +77,10 @@ class OtaClient:
             raise RuntimeError("未取得 CSRF 令牌。")
         payload = {"_token": self.csrf, "components": [{"snapshot": snapshot, "updates": updates or {}, "calls": calls}]}
         request = Request(
-            BASE_URL + "/livewire/update",
+            self.base_url + "/livewire/update",
             data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json", "Accept": "application/json", "Origin": BASE_URL,
-                     "Referer": BASE_URL + referer, "X-Livewire": "true", "User-Agent": "VisionRay-OtaAutomation/1.0"},
+            headers={"Content-Type": "application/json", "Accept": "application/json", "Origin": self.base_url,
+                     "Referer": self.base_url + referer, "X-Livewire": "true", "User-Agent": "VisionRay-OtaAutomation/1.0"},
             method="POST",
         )
         with self.opener.open(request, timeout=30) as response:
@@ -102,7 +107,7 @@ class OtaClient:
         self._post(snapshot, [{"path": "", "method": "login", "params": []}], "/login",
                    {"email": self.email, "password": self.password, "remember": True})
         # 登录成功通常是 redirect effect；用受限页面确认会话。
-        self._component(self._get("/otas"), "versions.ota-version-list")
+        self._component(self._get(self.ota_path), "versions.ota-version-list")
 
     def set_state(self, task_id: int, action: str, apply=False):
         """Preview or perform an OTA task online/offline transition by task ID."""
@@ -113,12 +118,12 @@ class OtaClient:
         if not apply:
             return {"task_id": task_id, "action": action, "status": "DRY_RUN"}
         self.login()
-        page = self._get("/otas")
+        page = self._get(self.ota_path)
         modal = self._component(page, "common.confirm-modal")
         answer = self._post(modal, [{"path": "", "method": "__dispatch", "params": ["showConfirm", {
-            "title": "", "subtitle": "", "action": action, "primaryKey": str(task_id)}]}], "/otas")
+            "title": "", "subtitle": "", "action": action, "primaryKey": str(task_id)}]}], self.ota_path)
         confirmation = self._response_snapshot(answer, "common.confirm-modal")
-        self._post(confirmation, [{"path": "", "method": "confirmSubmit", "params": []}], "/otas")
+        self._post(confirmation, [{"path": "", "method": "confirmSubmit", "params": []}], self.ota_path)
         return {"task_id": task_id, "action": action, "status": "APPLIED"}
 
 
