@@ -41,6 +41,7 @@ class OtaClient:
         config = json.loads(Path(config_path).read_text(encoding="utf-8")) if Path(config_path).is_file() else {}
         self.base_url = config.get("base_url", DEFAULT_BASE_URL).rstrip("/")
         self.ota_path = config.get("ota_path", "/otas")
+        self.list_component = config.get("list_component", "versions.ota-version-list")
         self.email = email or os.environ.get("VISIONRAY_OTA_EMAIL") or config.get("email", "")
         self.password = password or os.environ.get("VISIONRAY_OTA_PASSWORD") or config.get("password", "")
         self.opener = build_opener(HTTPCookieProcessor(CookieJar()))
@@ -107,7 +108,7 @@ class OtaClient:
         self._post(snapshot, [{"path": "", "method": "login", "params": []}], "/login",
                    {"email": self.email, "password": self.password, "remember": True})
         # 登录成功通常是 redirect effect；用受限页面确认会话。
-        self._component(self._get(self.ota_path), "versions.ota-version-list")
+        self._component(self._get(self.ota_path), self.list_component)
 
     def set_state(self, task_id: int, action: str, apply=False):
         """Preview or perform an OTA task online/offline transition by task ID."""
@@ -120,7 +121,7 @@ class OtaClient:
         self.login()
         page = self._get(self.ota_path)
         modal = self._component(page, "common.confirm-modal")
-        ota_list = self._component(page, "versions.ota-version-list")
+        ota_list = self._component(page, self.list_component)
         target = 1 if action == "online" else 0
         verb = "上线" if action == "online" else "下线"
         answer = self._post(modal, [{"path": "", "method": "__dispatch", "params": ["showConfirm", {

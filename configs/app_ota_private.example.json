@@ -1,0 +1,7 @@
+{
+  "base_url": "https://test.dpvr.com",
+  "email": "replace-with-management-account",
+  "password": "replace-with-management-password",
+  "ota_path": "/apps",
+  "list_component": "versions.app-version-list"
+}
