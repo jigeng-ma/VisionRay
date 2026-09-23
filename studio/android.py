@@ -39,7 +39,8 @@ class Android:
             def focused():
                 # Appium 会话的 current_package 可能滞后于真实进程；只相信 ADB 焦点。
                 output = adb.shell(phone, 'dumpsys', 'window', 'windows')
-                return package in output and ('mCurrentFocus' in output or 'mFocusedApp' in output)
+                return any(package in line for line in output.splitlines()
+                           if 'mCurrentFocus' in line or 'mFocusedApp' in line)
 
             if not focused():
                 self.log('launch-app', {'from': self.driver.current_package, 'target': package})
