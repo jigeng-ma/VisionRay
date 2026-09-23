@@ -183,6 +183,48 @@ class GalleryPage:
         return {'image': result.get('image', 0), 'video': result.get('video', 0),
                 'audio': result.get('audio', 0)}
 
+    def media_records(self):
+        """读取 APP 已导入媒资的数据库行，用于确认删除后的媒资已不在 APP 内。"""
+        from .devices import Adb
+        phone = self.a.context.get('phone')
+        if not phone:
+            raise TestBlocked('缺少手机序列号，无法读取 APP 媒资数据库。')
+        try:
+            adb = Adb()
+            with tempfile.TemporaryDirectory() as directory:
+                path = os.path.join(directory, 'nova_app_database')
+                for suffix in ('', '-wal', '-shm'):
+                    try:
+                        data = adb.run('-s', phone, 'exec-out', 'run-as', self.package,
+                                       'cat', 'databases/nova_app_database' + suffix, binary=True)
+                    except Exception:
+                        if suffix == '':
+                            raise
+                        continue
+                    with open(path + suffix, 'wb') as file:
+                        file.write(data)
+                database = sqlite3.connect(path)
+                rows = database.execute('select rowid, file_type from file_metadata').fetchall()
+                database.close()
+        except Exception as error:
+            raise TestBlocked('无法读取 APP 媒资数据库：' + str(error)) from error
+        return set(rows)
+
+    def phone_album_count(self, kind):
+        """通过 Android MediaStore 统计手机相册中的图片或视频，不读取 UI 文案。"""
+        if kind not in ('image', 'video'):
+            raise ValueError('kind 仅支持 image 或 video。')
+        from .devices import Adb
+        phone = self.a.context.get('phone')
+        if not phone:
+            raise TestBlocked('缺少手机序列号，无法读取手机相册。')
+        uri = 'content://media/external/images/media' if kind == 'image' else 'content://media/external/video/media'
+        try:
+            output = Adb().shell(phone, 'content', 'query', '--uri', uri, '--projection', '_id')
+        except Exception as error:
+            raise TestBlocked('无法读取手机相册 MediaStore：' + str(error)) from error
+        return sum(1 for line in output.splitlines() if line.lstrip().startswith('Row:'))
+
     def gallery_media_count(self):
         self.open()
         counts = self._media_counts_from_database()
@@ -252,6 +294,29 @@ class GalleryPage:
         self.a.wait(lambda: self.all('media_actions') or self.all('playerView') or self.all('play_btn'),
                     '媒体预览页', 12)
 
+    def preview(self, kind):
+        """打开指定类型媒资；缺少时先创建并导入一条，保证用例可单独执行。"""
+        if kind not in ('image', 'video'):
+            raise ValueError('kind 仅支持 image 或 video。')
+        self.open()
+        for item in self.media():
+            item.click()
+            self.a.wait(lambda: self.all('media_actions') or self.all('playerView') or self.all('play_btn'),
+                        '媒体预览页', 12)
+            is_video = bool(self.all('playerView') or self.all('play_btn'))
+            if (kind == 'video') == is_video:
+                return
+            self.d.press_keycode(4)
+            self.one('gallery_title', '返回 Gallery 页面', 12)
+        from .ble_commands import BleMediaCommands
+        before = self.pending_count_or_zero('home')
+        command = BleMediaCommands(self.a)
+        (command.take_photo if kind == 'image' else command.record_video)()
+        self.a.wait(lambda: self.pending_count_or_zero('home') >= before + 1,
+                    '生成空间用例所需测试媒资', 60)
+        self.import_from('home')
+        self.preview(kind)
+
     def action(self, resource, label):
         button = self.one(resource, label)
         if not button.is_enabled():
@@ -272,6 +337,28 @@ class GalleryPage:
         confirm = self.a.wait(lambda: next((e for e in self.all('tv_confirm') if e.text), None), '确认删除按钮', 10)
         confirm.click()
         self.a.wait(lambda: not self.all('tv_confirm'), '删除确认弹窗关闭', 15)
+
+    def delete_current_and_assert_absent(self, also_phone=False):
+        """删除当前预览媒资，并确认 APP 数据库中恰好少一条记录。"""
+        before = self.media_records()
+        if not before:
+            raise TestBlocked('APP 中没有可删除媒资。')
+        self.confirm_delete(also_phone)
+        self.a.wait(lambda: len(self.media_records()) == len(before) - 1,
+                    '删除后 APP 媒资数量减少一条', 30)
+        after = self.media_records()
+        removed = before - after
+        if len(removed) != 1:
+            raise AssertionError(f'删除后 APP 媒资记录变化异常：删除前 {len(before)}，删除后 {len(after)}。')
+        self.a.log('app-media-removed', {'record': next(iter(removed)), 'also_phone': also_phone})
+
+    def download_and_assert_phone_added(self, kind):
+        """下载当前媒资并确认手机相册相应类型新增一条。"""
+        before = self.phone_album_count(kind)
+        self.download()
+        self.a.wait(lambda: self.phone_album_count(kind) == before + 1,
+                    '下载后手机相册新增媒资', 60)
+        self.a.log('phone-album-added', {'kind': kind, 'before': before, 'after': before + 1})
 
     def download(self):
         self.action('ll_download', '下载')

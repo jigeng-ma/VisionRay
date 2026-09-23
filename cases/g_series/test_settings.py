@@ -92,7 +92,13 @@ def test_capture_video_duration(android):
 
 
 def test_system_recording_duration(android):
-    run(android, lambda: (SettingsPage(android).system(), SettingsPage(android).set_duration('recording_duration', '60Min')))
+    def action():
+        page = SettingsPage(android); page.system(); page.set_duration('recording_duration', '60Min')
+        # 录制一段默认 15 秒音频，确认该眼镜设置可被实际 APP 指令使用并产生待导入媒资。
+        gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
+        BleMediaCommands(android).record_audio()
+        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1,
+                     '录音后 APP 显示新增待导入媒资', 60)
 
 
 def test_system_restart(android):
@@ -103,7 +109,13 @@ def test_system_restart(android):
 
 def test_system_factory_reset(android):
     def action():
+        gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
+        BleMediaCommands(android).take_photo()
+        android.wait(lambda: gallery.pending_count_or_zero('home') == before + 1,
+                     '恢复出厂前拍照后 APP 媒资数量新增', 60)
         page = SettingsPage(android); page.system(); page.factory_reset()
+        gallery.open_home()
+        assert not gallery.import_card(), '恢复出厂并回到 APP 首页后仍显示恢复前的媒资卡片。'
     run(android, action)
 
 

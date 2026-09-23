@@ -72,9 +72,15 @@ def test_import_from_gallery(gallery):
     run(gallery, action)
 
 
-def test_download_media(gallery):
+def test_download_image(gallery):
     def action():
-        gallery.open(); gallery.preview_first(); gallery.download()
+        gallery.preview('image'); gallery.download_and_assert_phone_added('image')
+    run(gallery, action)
+
+
+def test_download_video(gallery):
+    def action():
+        gallery.preview('video'); gallery.download_and_assert_phone_added('video')
     run(gallery, action)
 
 
@@ -84,8 +90,26 @@ def test_video_playback(gallery):
     run(gallery, action)
 
 
-@pytest.mark.parametrize('also_phone', [False, True])
-def test_delete_media(gallery, also_phone):
+def test_delete_image_from_app(gallery):
     def action():
-        gallery.open(); gallery.preview_first(); gallery.confirm_delete(also_phone)
+        gallery.preview('image'); gallery.delete_current_and_assert_absent(False)
+    run(gallery, action)
+
+
+def test_delete_image_from_app_and_phone(gallery):
+    def action():
+        gallery.preview('image'); gallery.delete_current_and_assert_absent(True)
+    run(gallery, action)
+
+
+def test_delete_video_from_app_and_phone(gallery):
+    def action():
+        gallery.preview('video'); gallery.delete_current_and_assert_absent(True)
+    run(gallery, action)
+
+
+def test_delete_image_and_video_from_app_and_phone(gallery):
+    def action():
+        for kind in ('image', 'video'):
+            gallery.preview(kind); gallery.delete_current_and_assert_absent(True)
     run(gallery, action)

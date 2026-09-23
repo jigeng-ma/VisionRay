@@ -720,7 +720,7 @@
     "sheet": "G05_空间",
     "id": "Space_001",
     "automation_id": "VisionRay_0081",
-    "node": "cases/g_series/test_gallery.py::test_delete_media[True]",
+    "node": "cases/g_series/test_gallery.py::test_delete_image_and_video_from_app_and_phone",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -729,7 +729,7 @@
     "sheet": "G05_空间",
     "id": "Space_003",
     "automation_id": "VisionRay_0082",
-    "node": "cases/g_series/test_gallery.py::test_delete_media[False]",
+    "node": "cases/g_series/test_gallery.py::test_delete_image_from_app",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -738,7 +738,7 @@
     "sheet": "G05_空间",
     "id": "Space_004",
     "automation_id": "VisionRay_0083",
-    "node": "cases/g_series/test_gallery.py::test_delete_media[True]",
+    "node": "cases/g_series/test_gallery.py::test_delete_image_from_app_and_phone",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -747,7 +747,7 @@
     "sheet": "G05_空间",
     "id": "Space_005",
     "automation_id": "VisionRay_0084",
-    "node": "cases/g_series/test_gallery.py::test_download_media",
+    "node": "cases/g_series/test_gallery.py::test_download_image",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -765,7 +765,7 @@
     "sheet": "G05_空间",
     "id": "Space_007",
     "automation_id": "VisionRay_0086",
-    "node": "cases/g_series/test_gallery.py::test_download_media",
+    "node": "cases/g_series/test_gallery.py::test_download_video",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
@@ -774,7 +774,7 @@
     "sheet": "G05_空间",
     "id": "Space_008",
     "automation_id": "VisionRay_0087",
-    "node": "cases/g_series/test_gallery.py::test_delete_media[True]",
+    "node": "cases/g_series/test_gallery.py::test_delete_video_from_app_and_phone",
     "requires": [],
     "glasses_adb_required": false,
     "timeout_seconds": 90
