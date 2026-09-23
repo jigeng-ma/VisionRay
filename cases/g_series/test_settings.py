@@ -86,7 +86,7 @@ def test_capture_video_duration(android):
             __import__('time').sleep(300)
         else:
             raise AssertionError('录像结束后 20 分钟内未出现新增媒资。')
-        gallery.import_from('home')
+        gallery.import_from('home', timeout=1200)
         gallery.assert_latest_video_duration(720, 5)
     run(android, action)
 

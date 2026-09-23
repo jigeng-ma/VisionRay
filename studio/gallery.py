@@ -211,7 +211,7 @@ class GalleryPage:
         self.a.log('imported-media-total', result)
         return result
 
-    def import_from(self, surface):
+    def import_from(self, surface, timeout=120):
         """在指定入口导入，并返回导入前卡片显示的真实数量。"""
         before = self.pending_count_on(surface)
         button = self.one('status_action_btn' if self.all('status_title_tv') else 'import_btn', '导入按钮')
@@ -219,9 +219,9 @@ class GalleryPage:
             raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
         button.click()
         if self.all('status_title_tv'):
-            self.a.wait(lambda: not self.all('status_title_tv'), '导入完成', 120)
+            self.a.wait(lambda: not self.all('status_title_tv'), '导入完成', timeout)
         else:
-            self.a.wait(lambda: not self.import_card(), '空间页导入完成', 120)
+            self.a.wait(lambda: not self.import_card(), '空间页导入完成', timeout)
         # 导入完成后，两个入口都不应继续显示同一批待导入媒资。
         self.open_home()
         assert not self.import_card(), '首页导入完成后仍显示待导入媒资卡片。'
