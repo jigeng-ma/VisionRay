@@ -44,5 +44,10 @@ class GuidePage:
             raise AssertionError('连续左滑引导页后未找到 Done 按钮。')
         a.capture('guide-last-page')
         button.click(); a.log('guide', 'done')
-        a.wait(self.pairing.on_target_home, '点击 Done 后进入目标眼镜首页', 20)
+        a.wait(lambda: a.driver.current_activity != a.context['config']['pairing']['tutorial_activity'],
+               '点击 Done 后离开使用引导', 20)
+        # 当前版本 Done 会回到设备选择页而非直接回首页；继续完成可恢复的绑定准备。
+        if not self.pairing.on_target_home():
+            HomeDevicePage(a).home()
+        a.wait(self.pairing.on_target_home, '完成引导后进入目标眼镜首页', 30)
         a.capture('guide-complete-home')

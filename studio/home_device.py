@@ -1,4 +1,5 @@
 """G 系列首页和设备管理的公共页面动作。"""
+import time
 from studio.errors import TestBlocked
 
 
@@ -14,36 +15,33 @@ class HomeDevicePage:
 
     def home(self):
         self.a.ensure_foreground()
-        # 引导用例被中止时可能停在“Skip guidance?”确认框；先收敛到首页，
-        # 后续首页用例才不会把该临时状态误报成元素定位失败。
-        if self.a.find('pair.skip_title'):
-            self.a.click('pair.skip_confirm')
-            self.a.wait(lambda: self.a.find('pair.home_title'), '确认跳过引导后首页', 15)
-        elif self.a.find('pair.tutorial_begin'):
-            self.a.click('pair.skip')
-            self.a.element('pair.skip_title')
-            self.a.click('pair.skip_confirm')
-            self.a.wait(lambda: self.a.find('pair.home_title'), '跳过引导后首页', 15)
-        if self.a.find('pair.add'):
-            # 依赖已绑定首页的用例自行建立前置条件，避免前面的解绑/引导用例
-            # 让后续业务用例全部在 Add Device 页面超时。
-            from .pairing import PairingPage
-            pairing = PairingPage(self.a)
-            original = pairing.options.get('skip_tutorial', False)
-            try:
-                pairing.options['skip_tutorial'] = True
-                pairing.run()
-            finally:
-                pairing.options['skip_tutorial'] = original
-        if not self.a.find('pair.home_title'):
-            for _ in range(3):
+        # 每条业务用例都从已绑定首页开始。引导、型号页、Add Device 页面是前序
+        # 用例正常留下的状态，统一在这里恢复，避免把前置状态误报成业务失败。
+        for _ in range(6):
+            if self.a.find('pair.skip_title'):
+                self.a.click('pair.skip_confirm')
+            elif self.a.find('pair.tutorial_begin'):
+                self.a.click('pair.skip')
+                self.a.element('pair.skip_title')
+                self.a.click('pair.skip_confirm')
+            elif self.a.find('pair.add'):
+                from .pairing import PairingPage
+                pairing = PairingPage(self.a)
+                original = pairing.options.get('skip_tutorial', False)
+                try:
+                    pairing.options['skip_tutorial'] = True
+                    pairing.run()
+                finally:
+                    pairing.options['skip_tutorial'] = original
+            elif self.a.find('pair.home_title'):
+                break
+            else:
                 tabs = [e for e in self.a.driver.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()]
                 if tabs:
                     tabs[0].click()
                 else:
                     self.a.driver.press_keycode(4)
-                if self.a.wait(lambda: self.a.find('pair.home_title') or [e for e in self.a.driver.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()], '返回首页', 25):
-                    break
+            time.sleep(.5)
         title = self.a.element('pair.home_title', 20)
         if not title or not self.text(self.name, 5):
             raise TestBlocked('未处于目标眼镜已连接首页：' + self.name)
@@ -58,7 +56,10 @@ class HomeDevicePage:
         self.home(); self._labeled('tv_grid_title', label).click(); self.a.log('click-card', label)
 
     def setting(self, label):
-        self.home(); self._labeled('tv_list_title', label).click(); self.a.log('click-setting', label)
+        self.home()
+        # 新版首页不再总是使用 tv_list_title；文案本身仍是稳定的可点击入口。
+        self.text(label).click()
+        self.a.log('click-setting', label)
 
     def assert_page(self, title, marker):
         self.text(title, 15); self.text(marker, 15); self.a.capture(title.lower().replace(' ', '-'))

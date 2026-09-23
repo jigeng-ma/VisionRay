@@ -28,6 +28,9 @@ class GalleryPage:
 
     def open(self):
         self.a.ensure_foreground()
+        # 空间用例也需要自行恢复绑定首页，不能依赖上一条媒资或引导用例的结束页。
+        from .home_device import HomeDevicePage
+        HomeDevicePage(self.a).home()
         tabs = []
         for _ in range(4):
             tabs = [e for e in self.all('tabIcon') if e.is_enabled()]
@@ -192,7 +195,8 @@ class GalleryPage:
         if len(recorder) != 1:
             raise TestBlocked('首页未唯一找到 Recorder 入口。')
         recorder[0].click()
-        self.one('rv_audio_list', '录音机列表')
+        # 空录音机和有录音机列表的容器不同；数量以数据库为准，不依赖列表容器。
+        self.a.wait(lambda: not self.all('devices_title'), '进入录音机', 12)
         try:
             return self._media_counts_from_database()['audio']
         finally:
@@ -229,6 +233,16 @@ class GalleryPage:
     def media(self, minimum=1):
         # 当前 APP 的空间缩略图使用 iv_photo；旧版本使用 iv_media。
         items = self.all('iv_photo') or self.all('iv_media')
+        if len(items) < minimum:
+            # 空间用例单独执行时，自动生成并导入最小测试媒资，不能依赖媒资导入模块已运行。
+            from .ble_commands import BleMediaCommands
+            before = self.pending_count_or_zero('home')
+            BleMediaCommands(self.a).take_photo()
+            self.a.wait(lambda: self.pending_count_or_zero('home') >= before + 1,
+                        '生成空间用例所需测试图片', 60)
+            self.import_from('home')
+            self.open()
+            items = self.all('iv_photo') or self.all('iv_media')
         if len(items) < minimum:
             raise TestBlocked(f'相册需要至少 {minimum} 个已导入测试媒资，当前为 {len(items)} 个。')
         return items

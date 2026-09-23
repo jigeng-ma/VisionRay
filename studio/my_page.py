@@ -29,17 +29,18 @@ class MyPage:
                   if e.is_displayed() and e.text == label]
         if len(labels) != 1:
             raise AssertionError(f'My 页面未唯一找到 {label}：{len(labels)} 项。')
-        return labels[0].find_element('xpath', '..')
+        return labels[0]
 
     def open_item(self, label, arrow=False):
         row = self.row(label)
+        rect = row.rect
         if arrow:
-            arrows = [e for e in row.find_elements('id', self.package + ':id/next_iv') if e.is_displayed()]
-            if len(arrows) != 1:
-                raise AssertionError(f'{label} 未唯一显示 > 图标。')
-            arrows[0].click()
+            # UiAutomator2 不支持当前节点的父级 XPath；直接点击同一行右侧箭头位置。
+            self.d.execute_script('mobile: clickGesture', {'x': int(self.d.get_window_size()['width'] * .88),
+                                                            'y': int(rect['y'] + rect['height'] / 2)})
         else:
-            row.click()
+            self.d.execute_script('mobile: clickGesture', {'x': int(rect['x'] + rect['width'] / 2),
+                                                            'y': int(rect['y'] + rect['height'] / 2)})
         self.a.wait(lambda: not self._visible('My') or self.d.current_activity.endswith('MyActivity') is False,
                     label + ' 跳转', 15)
         self.a.capture('my-' + label.lower().replace(' ', '-').replace('&', 'and'))

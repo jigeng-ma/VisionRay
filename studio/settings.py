@@ -66,20 +66,22 @@ class SettingsPage:
                           f"//*[@package='{self.package}' and @text]"))), None)
         if not label:
             raise TestBlocked('未找到设置项：' + ' / '.join(labels))
-        row = label.find_element('xpath', '..')
-        switches = [e for e in row.find_elements('xpath', ".//*[@checkable='true']") if e.is_displayed()]
-        if len(switches) != 1:
-            raise AssertionError('语音唤醒开关未唯一定位。')
-        original = switches[0].get_attribute('checked') == 'true'
-        switches[0].click()
-        self.a.wait(lambda: next((e for e in row.find_elements('xpath', ".//*[@checkable='true']")
-                                  if e.is_displayed()), None).get_attribute('checked') == ('false' if original else 'true'),
+        # 当前 UiAutomator2 不能稳定从文本节点向上查找父节点；开关位于同一行右侧。
+        rect = label.rect
+        x, y = int(self.a.driver.get_window_size()['width'] * .88), int(rect['y'] + rect['height'] / 2)
+        before = [e.get_attribute('checked') for e in self.a.driver.find_elements(
+            'xpath', f"//*[@package='{self.package}' and @checkable='true']") if e.is_displayed()]
+        self.a.driver.execute_script('mobile: clickGesture', {'x': x, 'y': y})
+        self.a.wait(lambda: [e.get_attribute('checked') for e in self.a.driver.find_elements(
+            'xpath', f"//*[@package='{self.package}' and @checkable='true']") if e.is_displayed()] != before,
                     '语音唤醒开关切换', 8)
-        row.find_elements('xpath', ".//*[@checkable='true']")[0].click()
+        self.a.driver.execute_script('mobile: clickGesture', {'x': x, 'y': y})
 
     def tutorial(self, title):
         item = self.home.text(title)
-        item.find_element('xpath', '..').click()
+        rect = item.rect
+        self.a.driver.execute_script('mobile: clickGesture', {'x': int(rect['x'] + rect['width'] / 2),
+                                                               'y': int(rect['y'] + rect['height'] / 2)})
         self.a.wait(lambda: any(e.is_displayed() and e.text.strip()
                                 for e in self.a.driver.find_elements('xpath', '//*[@text]')),
                     title + ' 教程内容', 12)

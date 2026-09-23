@@ -20,8 +20,8 @@ def guarded(android, action):
 
 def requires_home(action):
     @functools.wraps(action)
-    def run(android, *args):
-        guarded(android, lambda: action(android, *args))
+    def run(android, *args, **kwargs):
+        guarded(android, lambda: action(android, *args, **kwargs))
     return run
 
 
