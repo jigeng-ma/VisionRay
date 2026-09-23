@@ -30,6 +30,8 @@ class App(tk.Tk):
     def __init__(self, root):
         super().__init__()
         self.root_dir = Path(root)
+        self.state_file = self.root_dir / 'configs' / 'workbench_state.json'
+        self.saved_state = self.load_state()
         self.title('AI 眼镜测试工作台')
         self.geometry('1180x780')
         self.minsize(980, 680)
@@ -44,26 +46,55 @@ class App(tk.Tk):
         self.total = self.completed = self.passed = self.failed = 0
         self.blocked = self.unimplemented = self.not_applicable = self.skipped = self.interrupted = 0
         self.controls = []
-        self.path = tk.StringVar()
-        self.phone = tk.StringVar()
-        self.glasses = tk.StringVar()
-        self.glasses_name = tk.StringVar()
-        self.skip_tutorial = tk.BooleanVar(value=False)
+        self.path = tk.StringVar(value=self.saved_state.get('path', ''))
+        self.phone = tk.StringVar(value=self.saved_state.get('phone', ''))
+        self.glasses = tk.StringVar(value=self.saved_state.get('glasses', ''))
+        self.glasses_name = tk.StringVar(value=self.saved_state.get('glasses_name', ''))
+        self.skip_tutorial = tk.BooleanVar(value=self.saved_state.get('skip_tutorial', False))
         self.product = tk.StringVar()
         self.model = tk.StringVar()
-        self.header = tk.StringVar(value='0')
-        self.id_col = tk.StringVar(value='A')
-        self.result_col = tk.StringVar(value='L')
+        self.header = tk.StringVar(value=self.saved_state.get('header', '0'))
+        self.id_col = tk.StringVar(value=self.saved_state.get('id_col', 'A'))
+        self.result_col = tk.StringVar(value=self.saved_state.get('result_col', 'L'))
         self.version_placeholder = '如 1.2.39'
-        self.app_version = tk.StringVar(value=self.version_placeholder)
+        self.app_version = tk.StringVar(value=self.saved_state.get('app_version', self.version_placeholder))
         self.status = tk.StringVar(value='选择 Excel 和设备，按 Sheet 执行测试')
         self.run_stats = tk.StringVar(value='本轮结果：待执行 0 / 通过 0 / 失败 0')
         self.data = catalog(root)
         self.build()
         self.glasses_name.trace_add("write", self.detect_model)
+        for var in (self.path, self.phone, self.glasses, self.glasses_name, self.skip_tutorial,
+                    self.product, self.model, self.header, self.id_col, self.result_col, self.app_version):
+            var.trace_add('write', self.save_state)
         self.after(100, self.poll)
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.refresh_devices()
+        if self.path.get() and Path(self.path.get()).is_file():
+            self.after(200, self.load_file)
+
+    def load_state(self):
+        try:
+            value = json.loads(self.state_file.read_text(encoding='utf-8'))
+            return value if isinstance(value, dict) else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def save_state(self, *_):
+        if self.busy:
+            return
+        data = {'path': self.path.get(), 'phone': self.phone.get(), 'glasses': self.glasses.get(),
+                'glasses_name': self.glasses_name.get(), 'skip_tutorial': self.skip_tutorial.get(),
+                'product': self.product.get(), 'model': self.model.get(), 'header': self.header.get(),
+                'id_col': self.id_col.get(), 'result_col': self.result_col.get(),
+                'app_version': self.app_version.get(), 'selected': sorted(self.selected)}
+        self.saved_state = data
+        try:
+            self.state_file.parent.mkdir(exist_ok=True)
+            temp = self.state_file.with_suffix('.tmp')
+            temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+            temp.replace(self.state_file)
+        except OSError:
+            pass
 
     def build(self):
         style = ttk.Style(self)
@@ -130,8 +161,12 @@ class App(tk.Tk):
         skip = ttk.Checkbutton(devices, text='配对后跳过引导（验证进入目标眼镜首页）', variable=self.skip_tutorial)
         skip.grid(row=5, column=0, columnspan=4, sticky='w', pady=(5, 0))
         self.controls.append((skip, 'normal'))
-        self.product.set('G系列' if 'G系列' in self.data['products'] else next(iter(self.data['products'])))
+        saved_product = self.saved_state.get('product')
+        self.product.set(saved_product if saved_product in self.data['products'] else
+                         ('G系列' if 'G系列' in self.data['products'] else next(iter(self.data['products']))))
         self.change_product()
+        if self.saved_state.get('model') in self.model_box['values']:
+            self.model.set(self.saved_state['model'])
         modules = ttk.LabelFrame(body, text='3  勾选要执行的 Sheet 模块', padding=6)
         modules.pack(fill='both', expand=True)
         bar = ttk.Frame(modules)
@@ -309,6 +344,7 @@ class App(tk.Tk):
     def select_all(self, value):
         self.selected = {s for s, m in self.modules.items() if m['cases'] and not m['warnings']} if value else set()
         self.render_selection()
+        self.save_state()
 
     def toggle(self, event):
         if self.busy or self.tree.identify_column(event.x) != '#1':
@@ -326,6 +362,7 @@ class App(tk.Tk):
         else:
             self.selected.add(name)
         self.render_selection()
+        self.save_state()
 
     def show_warnings(self, event):
         row = self.tree.identify_row(event.y)
@@ -430,7 +467,7 @@ class App(tk.Tk):
                     self.status.set(f'发现 {len(value)} 台设备，请分别选择手机与眼镜。')
                 elif kind == 'loaded':
                     self.modules, entries, self.loaded_mapping, self.loaded_hash = value
-                    self.selected.clear()
+                    self.selected = set(self.saved_state.get('selected', ())) & set(self.modules)
                     self.tree.delete(*self.tree.get_children())
                     for name, m in self.modules.items():
                         ready = sum((name, c['id']) in entries for c in m['cases'])
@@ -438,6 +475,7 @@ class App(tk.Tk):
                         self.tree.insert('', 'end', values=('☐', name, len(m['cases']), ready, check, '未执行'),
                                          tags=('invalid',) if m['warnings'] or not m['cases'] else ())
                     self.render_selection()
+                    self.save_state()
                     self.status.set(f'已读取全部 {len(self.modules)} 个 Sheet。汇总页、空表及编号异常模块保留显示，禁止执行。')
                     self.refresh_coverage()
                 elif kind == 'preflight':
