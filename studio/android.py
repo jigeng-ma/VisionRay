@@ -41,8 +41,8 @@ class Android:
                 # Samsung Android 14 的 ``dumpsys window windows`` 不输出 mCurrentFocus；
                 # 使用完整 ``dumpsys window`` 才能取得实际焦点行。
                 output = adb.shell(phone, 'dumpsys', 'window')
-                return any(package in line for line in output.splitlines()
-                           if 'mCurrentFocus' in line or 'mFocusedApp' in line)
+                # mFocusedApp 在切到桌面后可能仍保留旧 APP；只有 mCurrentFocus 代表当前窗口。
+                return any(package in line for line in output.splitlines() if 'mCurrentFocus' in line)
 
             if not focused():
                 self.log('launch-app', {'from': self.driver.current_package, 'target': package})
