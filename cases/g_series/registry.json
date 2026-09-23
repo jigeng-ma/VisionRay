@@ -1051,5 +1051,50 @@
     "sheet": "G00_登录注册", "id": "C-L_048", "automation_id": "VisionRay_0124",
     "node": "cases/g_series/test_auth.py::test_auth[AUTH_048]", "requires": [],
     "glasses_adb_required": false, "timeout_seconds": 600
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_001", "automation_id": "VisionRay_0125",
+    "node": "cases/g_series/test_my.py::test_account", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_002", "automation_id": "VisionRay_0126",
+    "node": "cases/g_series/test_my.py::test_file_history", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_003", "automation_id": "VisionRay_0127",
+    "node": "cases/g_series/test_my.py::test_background_activity_permission", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_004", "automation_id": "VisionRay_0128",
+    "node": "cases/g_series/test_my.py::test_permission", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_005", "automation_id": "VisionRay_0129",
+    "node": "cases/g_series/test_my.py::test_personal_info_privacy", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_006", "automation_id": "VisionRay_0130",
+    "node": "cases/g_series/test_my.py::test_feedback", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_007", "automation_id": "VisionRay_0131",
+    "node": "cases/g_series/test_my.py::test_about_app", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_008", "automation_id": "VisionRay_0132",
+    "node": "cases/g_series/test_my.py::test_feedback", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180, "manual": true
+  },
+  {
+    "sheet": "G10_我的", "id": "F-OTA_009", "automation_id": "VisionRay_0133",
+    "node": "cases/g_series/test_my.py::test_feedback", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 180, "manual": true
   }
 ]
