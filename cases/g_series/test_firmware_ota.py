@@ -18,11 +18,8 @@ def run(android, action):
         android.popups.preserve.discard("firmware_update")
 
 
-def _restart_app(android, adb):
-    package = android.context["config"]["package"]
-    adb.shell(android.context["phone"], "am", "force-stop", package)
-    adb.shell(android.context["phone"], "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1")
-    android.wait(lambda: android.driver.current_package == package, "重启后打开 VisionRay", 25)
+def _restart_app(android):
+    android.restart()
 
 
 def _manual_update(android, firmware):
@@ -34,10 +31,10 @@ def _manual_update(android, firmware):
     page.wait_for_completion(target["version"], before, direction)
 
 
-def _startup_update(android, adb, firmware, mandatory):
+def _startup_update(android, firmware, mandatory):
     before, target, direction = choose_target(android, firmware)
     prepare_target(target["task_id"], mandatory=mandatory)
-    _restart_app(android, adb)
+    _restart_app(android)
     page = FirmwareUpdatePage(android)
     try:
         page.startup_popup(mandatory)
@@ -56,9 +53,9 @@ def test_wifi_firmware_update(android):
     run(android, lambda: _manual_update(android, "wifi"))
 
 
-def test_bluetooth_forced_update_on_start(android, adb):
-    run(android, lambda: _startup_update(android, adb, "bluetooth", mandatory=True))
+def test_bluetooth_forced_update_on_start(android):
+    run(android, lambda: _startup_update(android, "bluetooth", mandatory=True))
 
 
-def test_wifi_optional_update_on_start(android, adb):
-    run(android, lambda: _startup_update(android, adb, "wifi", mandatory=False))
+def test_wifi_optional_update_on_start(android):
+    run(android, lambda: _startup_update(android, "wifi", mandatory=False))

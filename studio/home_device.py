@@ -75,19 +75,15 @@ class HomeDevicePage:
 
     def restart_and_reconnect(self, adb):
         self.home()
-        serial = self.a.context['phone']
-        adb.shell(serial, 'am', 'force-stop', self.package)
         __import__('time').sleep(2)
-        # 必须使用启动器 Intent；直接启动 SplashActivity 会结束后回到桌面。
-        adb.shell(serial, 'monkey', '-p', self.package, '-c', 'android.intent.category.LAUNCHER', '1')
         try:
+            self.a.restart()
             self.a.wait(lambda: self.a.driver.current_package == self.package, 'APP 重启后前台启动', 20)
             self.a.wait(lambda: self.a.find('pair.home_title'), 'APP 重启后首页加载', 30)
             self.connected()
         finally:
             # 即使重连断言失败，也把 APP 恢复到前台，避免污染后续用例。
-            if self.a.driver.current_package != self.package:
-                adb.shell(serial, 'monkey', '-p', self.package, '-c', 'android.intent.category.LAUNCHER', '1')
+            self.a.ensure_foreground()
 
     def device_settings(self):
         self.home(); self.a.driver.find_element('id', self.package + ':id/devices_menu').click()

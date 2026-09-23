@@ -30,18 +30,14 @@ def prepare_three_pending_media(page):
     return baseline + 3
 
 
-def restart_app(page, adb):
-    package = page.package
-    phone = page.a.context['phone']
-    adb.shell(phone, 'am', 'force-stop', package)
-    adb.shell(phone, 'monkey', '-p', package, '-c', 'android.intent.category.LAUNCHER', '1')
-    page.a.wait(lambda: page.a.driver.current_package == package, 'APP 重启后前台启动', 25)
+def restart_app(page):
+    page.a.restart()
 
 
-def test_import_card_on_home_and_gallery(gallery, adb):
+def test_import_card_on_home_and_gallery(gallery):
     def action():
         expected = prepare_three_pending_media(gallery)
-        restart_app(gallery, adb)
+        restart_app(gallery)
         gallery.assert_pending_counts(expected)
     run(gallery, action)
 

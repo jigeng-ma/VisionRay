@@ -42,7 +42,10 @@ class Android:
                 # 使用完整 ``dumpsys window`` 才能取得实际焦点行。
                 output = adb.shell(phone, 'dumpsys', 'window')
                 # mFocusedApp 在切到桌面后可能仍保留旧 APP；只有 mCurrentFocus 代表当前窗口。
-                return any(package in line for line in output.splitlines() if 'mCurrentFocus' in line)
+                # 启动器会先短暂显示 SplashActivity；它结束前不能开始找业务元素，
+                # 否则部分机型会在初始化后回到桌面而产生“启动成功”的假象。
+                return any(package in line and 'SplashActivity' not in line
+                           for line in output.splitlines() if 'mCurrentFocus' in line)
 
             if not focused():
                 self.log('launch-app', {'from': self.driver.current_package, 'target': package})
@@ -52,6 +55,15 @@ class Android:
         elif self.driver.current_package != package:  # 仅供无 ADB 的单元测试驱动使用。
             self.driver.activate_app(package)
         self.wait(lambda: self.driver.current_package == package, 'Appium 识别 VisionRay 前台', 25)
+
+    def restart(self):
+        """停止后通过启动器恢复 APP，并确认真实前台窗口。"""
+        phone = self.context.get('phone')
+        if not phone:
+            raise TestBlocked('重启 APP 需要已选择手机设备。')
+        from .devices import Adb
+        Adb().shell(phone, 'am', 'force-stop', self.context['config']['package'])
+        self.ensure_foreground()
 
     def log(self, event, detail):
         print(f'{event}: {detail}', flush=True)
