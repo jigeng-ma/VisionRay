@@ -43,20 +43,25 @@ class SettingsPage:
             raise AssertionError(f'{resource} 应唯一显示，实际 {len(found)} 项。')
         return found[0]
 
+    @staticmethod
+    def is_on(control):
+        # 新版 Compose Switch 的 checkable/checked 恒为 false，以 selected 反映状态。
+        return control.get_attribute('checked') == 'true' or control.get_attribute('selected') == 'true'
+
     def on(self, resource):
         control = self.one(resource)
-        if control.get_attribute('checked') != 'true':
+        if not self.is_on(control):
             control.click()
-        self.a.wait(lambda: self.one(resource).get_attribute('checked') == 'true', resource + ' 已开启', 8)
+        self.a.wait(lambda: self.is_on(self.one(resource)), resource + ' 已开启', 8)
 
     def toggle_round_trip(self, resource):
         control = self.one(resource)
-        original = control.get_attribute('checked') == 'true'
+        original = self.is_on(control)
         control.click()
-        self.a.wait(lambda: (self.one(resource).get_attribute('checked') == 'true') != original,
+        self.a.wait(lambda: self.is_on(self.one(resource)) != original,
                     resource + ' 切换', 8)
         self.one(resource).click()
-        self.a.wait(lambda: (self.one(resource).get_attribute('checked') == 'true') == original,
+        self.a.wait(lambda: self.is_on(self.one(resource)) == original,
                     resource + ' 恢复', 8)
 
     def toggle_labeled(self, labels):
@@ -69,11 +74,13 @@ class SettingsPage:
         # 当前 UiAutomator2 不能稳定从文本节点向上查找父节点；开关位于同一行右侧。
         rect = label.rect
         x, y = int(self.a.driver.get_window_size()['width'] * .88), int(rect['y'] + rect['height'] / 2)
-        before = [e.get_attribute('checked') for e in self.a.driver.find_elements(
-            'xpath', f"//*[@package='{self.package}' and @checkable='true']") if e.is_displayed()]
+        def states():
+            controls = [e for e in self.a.driver.find_elements(
+                'xpath', f"//*[@package='{self.package}' and @clickable='true' and @resource-id]") if e.is_displayed()]
+            return [(e.get_attribute('resourceId'), e.get_attribute('selected')) for e in controls]
+        before = states()
         self.a.driver.execute_script('mobile: clickGesture', {'x': x, 'y': y})
-        self.a.wait(lambda: [e.get_attribute('checked') for e in self.a.driver.find_elements(
-            'xpath', f"//*[@package='{self.package}' and @checkable='true']") if e.is_displayed()] != before,
+        self.a.wait(lambda: states() != before,
                     '语音唤醒开关切换', 8)
         self.a.driver.execute_script('mobile: clickGesture', {'x': x, 'y': y})
 

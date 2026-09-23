@@ -36,14 +36,13 @@ def firmware_version(android) -> str:
     """从 System Settings 读取当前连接眼镜的实际固件版本。"""
     page = HomeDevicePage(android)
     page.setting("System Settings")
-    labels = [e for e in android.driver.find_elements(
-        "xpath", f"//*[@resource-id='{page.package}:id/tv_title' and @text='Firmware Version']")
-        if e.is_displayed()]
-    if len(labels) != 1:
+    labels = [e for e in android.driver.find_elements('id', page.package + ':id/tv_title') if e.is_displayed()]
+    indexes = [index for index, label in enumerate(labels) if label.text == 'Firmware Version']
+    if len(indexes) != 1:
         raise TestBlocked("系统设置页未唯一找到 Firmware Version。")
-    values = [e.text.strip() for e in labels[0].find_element("xpath", "..").find_elements("xpath", ".//*[@text]")
-              if e.text.strip()]
-    version = next((value for value in values if value != "Firmware Version"), "")
+    values = [e for e in android.driver.find_elements('id', page.package + ':id/tv_hint') if e.is_displayed()]
+    index = indexes[0]
+    version = values[index].text.strip() if len(values) > index else ''
     if not version:
         raise TestBlocked("无法读取当前眼镜固件版本。")
     android.log("firmware-version", version)

@@ -57,8 +57,9 @@ class HomeDevicePage:
 
     def setting(self, label):
         self.home()
-        # 新版首页不再总是使用 tv_list_title；文案本身仍是稳定的可点击入口。
-        self.text(label).click()
+        # 首页卡片和设置项均可能叫 DP AI；新版系统设置入口文案为 System。
+        actual = {'System Settings': 'System'}.get(label, label)
+        self._labeled('tv_list_title', actual).click()
         self.a.log('click-setting', label)
 
     def assert_page(self, title, marker):
