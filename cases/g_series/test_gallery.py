@@ -72,44 +72,58 @@ def test_import_from_gallery(gallery):
     run(gallery, action)
 
 
+def prepare_new_imported_media(gallery, kind, duration=15):
+    """下载验证只使用本用例新建媒资，避免历史文件已存在于手机相册。"""
+    before = gallery.pending_count_or_zero('home')
+    command = BleMediaCommands(gallery.a)
+    if kind == 'image':
+        command.take_photo()
+    else:
+        command.record_video(duration=duration)
+    gallery.a.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1,
+                   '生成下载验证所需新媒资', 120 if kind == 'video' else 60)
+    gallery.import_from('home')
+    gallery.preview_latest(kind)
+
+
 def test_download_image(gallery):
     def action():
-        gallery.preview('image'); gallery.download_and_assert_phone_added('image')
+        prepare_new_imported_media(gallery, 'image'); gallery.download_and_assert_phone_added('image')
     run(gallery, action)
 
 
 def test_download_video(gallery):
     def action():
-        gallery.preview('video'); gallery.download_and_assert_phone_added('video')
+        prepare_new_imported_media(gallery, 'video'); gallery.download_and_assert_phone_added('video')
     run(gallery, action)
 
 
 def test_video_playback(gallery):
     def action():
-        gallery.open(); gallery.preview_first(); gallery.play_pause()
+        prepare_new_imported_media(gallery, 'video', duration=60); gallery.play_pause()
     run(gallery, action)
 
 
 def test_delete_image_from_app(gallery):
     def action():
-        gallery.preview('image'); gallery.delete_current_and_assert_absent(False)
+        prepare_new_imported_media(gallery, 'image'); gallery.delete_current_and_assert_absent(False)
     run(gallery, action)
 
 
 def test_delete_image_from_app_and_phone(gallery):
     def action():
-        gallery.preview('image'); gallery.delete_current_and_assert_absent(True)
+        prepare_new_imported_media(gallery, 'image'); gallery.delete_current_and_assert_absent(True)
     run(gallery, action)
 
 
 def test_delete_video_from_app_and_phone(gallery):
     def action():
-        gallery.preview('video'); gallery.delete_current_and_assert_absent(True)
+        prepare_new_imported_media(gallery, 'video'); gallery.delete_current_and_assert_absent(True)
     run(gallery, action)
 
 
 def test_delete_image_and_video_from_app_and_phone(gallery):
     def action():
         for kind in ('image', 'video'):
-            gallery.preview(kind); gallery.delete_current_and_assert_absent(True)
+            prepare_new_imported_media(gallery, kind); gallery.delete_current_and_assert_absent(True)
     run(gallery, action)

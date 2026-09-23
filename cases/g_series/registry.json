@@ -759,7 +759,7 @@
     "node": "cases/g_series/test_gallery.py::test_video_playback",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 180
   },
   {
     "sheet": "G05_空间",
@@ -768,7 +768,7 @@
     "node": "cases/g_series/test_gallery.py::test_download_video",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 180
   },
   {
     "sheet": "G05_空间",

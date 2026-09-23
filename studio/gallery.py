@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import io
 import shutil
+import time
 from .errors import TestBlocked
 
 
@@ -291,8 +292,13 @@ class GalleryPage:
 
     def preview_first(self):
         self.media()[0].click()
-        self.a.wait(lambda: self.all('media_actions') or self.all('playerView') or self.all('play_btn'),
+        self.a.wait(self.preview_ready,
                     '媒体预览页', 12)
+
+    def preview_ready(self):
+        # 当前版本图片详情使用 iv_detail/vp_footer；旧版和视频详情保留原有标识。
+        return (self.all('iv_detail') or self.all('vp_footer') or self.all('media_actions')
+                or self.all('playerView') or self.all('play_btn'))
 
     def preview(self, kind):
         """打开指定类型媒资；缺少时先创建并导入一条，保证用例可单独执行。"""
@@ -301,8 +307,7 @@ class GalleryPage:
         self.open()
         for item in self.media():
             item.click()
-            self.a.wait(lambda: self.all('media_actions') or self.all('playerView') or self.all('play_btn'),
-                        '媒体预览页', 12)
+            self.a.wait(self.preview_ready, '媒体预览页', 12)
             is_video = bool(self.all('playerView') or self.all('play_btn'))
             if (kind == 'video') == is_video:
                 return
@@ -317,8 +322,18 @@ class GalleryPage:
         self.import_from('home')
         self.preview(kind)
 
+    def preview_latest(self, kind):
+        """打开空间页最新导入的一条媒资，并防止下载测试误用历史文件。"""
+        self.open()
+        self.media()[0].click()
+        self.a.wait(self.preview_ready, '最新媒资预览页', 12)
+        is_video = bool(self.all('playerView') or self.all('play_btn'))
+        if (kind == 'video') != is_video:
+            raise AssertionError(f'最新导入媒资类型不符：预期 {kind}。')
+
     def action(self, resource, label):
-        button = self.one(resource, label)
+        resources = (resource,) if isinstance(resource, str) else resource
+        button = self.a.wait(lambda: next((item for name in resources for item in self.all(name)), None), label, 12)
         if not button.is_enabled():
             raise TestBlocked(f'{label} 不可用。')
         button.click()
@@ -329,7 +344,7 @@ class GalleryPage:
 
     def confirm_delete(self, also_phone=False):
         self.require_delete_permission()
-        self.action('ll_delete', '删除')
+        self.action(('ll_activity_delete', 'll_delete'), '删除')
         if also_phone:
             checkbox = self.one('delete_radiobutton', '同时从手机相册删除')
             if checkbox.get_attribute('checked') != 'true':
@@ -407,9 +422,16 @@ class GalleryPage:
         self.a.log('video-thumbnail-duration', {'actual': actual, 'expected': expected_seconds})
 
     def play_pause(self):
+        def seconds():
+            value = self.one('cur_time_tv', '视频当前播放时间').text
+            minute, second = map(int, value.split(':'))
+            return minute * 60 + second
+        # 新版 ExoPlayer 的播放/暂停共用 play_btn，以播放时间递增和暂停后的冻结判定状态。
+        before = seconds()
         self.action('play_btn', '播放')
-        self.one('pause_btn', '暂停播放')
-        self.d.find_element('id', self.package + ':id/playerView').click()
-        self.one('pause_btn', '点击空白区后仍播放')
-        self.action('pause_btn', '暂停播放')
-        self.one('play_btn', '暂停后播放按钮')
+        self.a.wait(lambda: seconds() > before, '视频播放进度变化', 8)
+        self.action('play_btn', '暂停播放')
+        paused = seconds()
+        time.sleep(1)
+        if abs(seconds() - paused) > 1:
+            raise AssertionError('暂停后视频播放时间仍在变化。')

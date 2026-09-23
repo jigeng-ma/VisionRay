@@ -101,6 +101,11 @@ class SettingsPage:
         choice = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath',
             f"//*[@package='{self.package}' and @text='{value}']") if e.is_displayed()), None), value, 10)
         choice.click()
+        # 新版音色选择为独立确认弹窗；选择后必须确认，才会返回 AI 设置页。
+        confirm = self.a.wait(lambda: next((e for e in self.a.driver.find_elements(
+            'id', self.package + ':id/tv_confirm') if e.is_displayed() and e.is_enabled()), None),
+            '确认音色选择', 8)
+        confirm.click()
         self.a.wait(lambda: self.one('tv_speaker').text == value, '音色切换为 ' + value, 10)
 
     def set_duration(self, resource, expected):

@@ -47,11 +47,20 @@ class Android:
                 return any(package in line and 'SplashActivity' not in line
                            for line in output.splitlines() if 'mCurrentFocus' in line)
 
-            if not focused():
-                self.log('launch-app', {'from': self.driver.current_package, 'target': package})
+            for attempt in range(3):
+                if focused():
+                    break
+                self.log('launch-app', {'from': self.driver.current_package, 'target': package,
+                                        'attempt': attempt + 1})
                 # 不得使用 SplashActivity 或 activate_app；两者可能在启动初始化后回到桌面。
                 adb.shell(phone, 'monkey', '-p', package, '-c', 'android.intent.category.LAUNCHER', '1')
-            self.wait(focused, 'VisionRay 成为实际前台窗口', 25)
+                try:
+                    self.wait(focused, 'VisionRay 成为实际前台窗口', 12)
+                    break
+                except WaitTimeout:
+                    if attempt == 2:
+                        raise
+                    self.log('launch-app-retry', {'attempt': attempt + 1})
         elif self.driver.current_package != package:  # 仅供无 ADB 的单元测试驱动使用。
             self.driver.activate_app(package)
         self.wait(lambda: self.driver.current_package == package, 'Appium 识别 VisionRay 前台', 25)
