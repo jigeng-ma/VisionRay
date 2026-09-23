@@ -16,7 +16,8 @@ class SettingsPage:
     def ai_from_history(self):
         """必须从 AI 对话记录页右上角设置进入，不能绕过入口直达设置页。"""
         self.home.home()
-        labels = ('AI Conversation History', 'AI Chat History', 'AI Conversation', 'AI Chat')
+        # 当前版本以首页 DP AI 卡片承载对话记录，旧版本则显示 AI Conversation History。
+        labels = ('AI Conversation History', 'AI Chat History', 'AI Conversation', 'AI Chat', 'DP AI')
         entry = next((self.home._labeled('tv_grid_title', label) for label in labels
                       if any(e.is_displayed() and e.text == label for e in self.a.driver.find_elements(
                           'id', self.package + ':id/tv_grid_title'))), None)

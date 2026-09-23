@@ -53,6 +53,9 @@ def test_each_media_updates_import_count(gallery):
 
 
 def assert_import_increment(page, surface):
+    # 模块单独执行时没有上一条用例留下待导入媒资，先生成可导入的三类测试数据。
+    if page.pending_count_or_zero(surface) == 0:
+        prepare_three_pending_media(page)
     before = page.imported_totals()
     imported = page.import_from(surface)
     after = page.imported_totals()
