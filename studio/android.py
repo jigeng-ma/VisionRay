@@ -38,7 +38,9 @@ class Android:
 
             def focused():
                 # Appium 会话的 current_package 可能滞后于真实进程；只相信 ADB 焦点。
-                output = adb.shell(phone, 'dumpsys', 'window', 'windows')
+                # Samsung Android 14 的 ``dumpsys window windows`` 不输出 mCurrentFocus；
+                # 使用完整 ``dumpsys window`` 才能取得实际焦点行。
+                output = adb.shell(phone, 'dumpsys', 'window')
                 return any(package in line for line in output.splitlines()
                            if 'mCurrentFocus' in line or 'mFocusedApp' in line)
 
