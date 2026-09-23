@@ -31,18 +31,24 @@ class Android:
 
     def ensure_foreground(self):
         package = self.context['config']['package']
-        before = self.driver.current_package
-        if before != package:
-            self.log('launch-app', {'from': before, 'target': package})
-            # SplashActivity 会在初始化后结束，activate_app 有时会把任务带回桌面。
-            # 使用与桌面图标一致的启动器 Intent，保留当前引导/首页任务状态。
-            phone = self.context.get('phone')
-            if phone:
-                from .devices import Adb
-                Adb().shell(phone, 'monkey', '-p', package, '-c', 'android.intent.category.LAUNCHER', '1')
-            else:  # 单元测试和没有设备上下文的调用保留 Appium 原生方式。
-                self.driver.activate_app(package)
-        self.wait(lambda: self.driver.current_package == package, '启动或切回被测 APP', 25)
+        phone = self.context.get('phone')
+        if phone:
+            from .devices import Adb
+            adb = Adb()
+
+            def focused():
+                # Appium 会话的 current_package 可能滞后于真实进程；只相信 ADB 焦点。
+                output = adb.shell(phone, 'dumpsys', 'window', 'windows')
+                return package in output and ('mCurrentFocus' in output or 'mFocusedApp' in output)
+
+            if not focused():
+                self.log('launch-app', {'from': self.driver.current_package, 'target': package})
+                # 不得使用 SplashActivity 或 activate_app；两者可能在启动初始化后回到桌面。
+                adb.shell(phone, 'monkey', '-p', package, '-c', 'android.intent.category.LAUNCHER', '1')
+            self.wait(focused, 'VisionRay 成为实际前台窗口', 25)
+        elif self.driver.current_package != package:  # 仅供无 ADB 的单元测试驱动使用。
+            self.driver.activate_app(package)
+        self.wait(lambda: self.driver.current_package == package, 'Appium 识别 VisionRay 前台', 25)
 
     def log(self, event, detail):
         print(f'{event}: {detail}', flush=True)
