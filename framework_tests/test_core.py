@@ -11,6 +11,7 @@ from xml.sax.saxutils import escape
 from studio.workbook import Mapping, inspect, export
 from studio.config import merge
 from studio.runner import execute, RunLock, ordered_plan
+from studio.ui import summarize_selected
 
 
 def fixture(path, sheets):
@@ -68,13 +69,17 @@ class CoreTests(unittest.TestCase):
         self.assertFalse(base['capabilities']['video'])
         self.assertEqual(result['values'], [2])
 
+    @patch('studio.pgyer.install')
+    @patch('studio.pgyer.download', return_value=Path('fake.apk'))
+    @patch('studio.pgyer.resolve_build', return_value='build')
     @patch('studio.runner.Adb')
-    def test_selection_persistence_and_no_fabricated_pass(self, adb):
+    def test_selection_persistence_and_no_fabricated_pass(self, adb, *_):
         fixture(self.file, {'选择': self.rows, '未选择': self.rows})
         (self.root/'cases').mkdir()
         (self.root/'cases/registry.json').write_text('[]')
         adb.return_value.preflight.return_value = {}
-        context = {'phone': 'p', 'glasses': 'g', 'glasses_name': '测试眼镜', 'config': {'package': 'test.app', 'model': 'test'}}
+        adb.return_value.shell.return_value = 'versionName=1.2.39-Occident-debug'
+        context = {'phone': 'p', 'glasses': 'g', 'glasses_name': '测试眼镜', 'app_version': '1.2.39-Occident-debug', 'config': {'package': 'test.app', 'model': 'test'}}
         out = execute(self.root, self.file, Mapping(), ['选择'], context, threading.Event(), lambda *a: None)
         self.assertEqual(out['summary']['选择'], {'NOT_IMPLEMENTED': 1})
         self.assertEqual(out['summary']['未选择'], {'NOT_RUN': 1})
@@ -88,22 +93,29 @@ class CoreTests(unittest.TestCase):
                 with RunLock(self.root):
                     pass
 
+    @patch('studio.pgyer.install')
+    @patch('studio.pgyer.download', return_value=Path('fake.apk'))
+    @patch('studio.pgyer.resolve_build', return_value='build')
     @patch('studio.runner.Adb')
-    def test_stop_preserves_not_run(self, adb):
+    def test_stop_preserves_not_run(self, adb, *_):
         fixture(self.file, {'选择': self.rows})
         (self.root/'cases').mkdir()
         (self.root/'cases/registry.json').write_text('[]')
         adb.return_value.preflight.return_value = {}
         stop = threading.Event()
         stop.set()
-        context = {'phone': 'p', 'glasses': 'g', 'glasses_name': '测试', 'config': {'package': 'test.app', 'model': 'test'}}
+        adb.return_value.shell.return_value = 'versionName=1.2.39-Occident-debug'
+        context = {'phone': 'p', 'glasses': 'g', 'glasses_name': '测试', 'app_version': '1.2.39-Occident-debug', 'config': {'package': 'test.app', 'model': 'test'}}
         out = execute(self.root, self.file, Mapping(), ['选择'], context, stop, lambda *a: None)
         self.assertEqual(out['manifest']['state'], 'INTERRUPTED')
         self.assertEqual(out['summary']['选择'], {'NOT_RUN': 1})
 
+    @patch('studio.pgyer.install')
+    @patch('studio.pgyer.download', return_value=Path('fake.apk'))
+    @patch('studio.pgyer.resolve_build', return_value='build')
     @patch('studio.runner.subprocess.Popen')
     @patch('studio.runner.Adb')
-    def test_stop_terminates_current_case_and_persists_interrupted(self, adb, popen):
+    def test_stop_terminates_current_case_and_persists_interrupted(self, adb, popen, *_):
         fixture(self.file, {'选择': self.rows + [{'A': '002', 'F': '后续用例'}]})
         (self.root/'cases').mkdir()
         (self.root/'cases/test_fake.py').write_text('def test_case(): pass')
@@ -115,7 +127,8 @@ class CoreTests(unittest.TestCase):
             def wait(self, timeout=None):
                 self.set()
                 return True
-        context = {'phone':'p','glasses':'g','glasses_name':'测试','config':{'package':'test.app','model':'test'}}
+        adb.return_value.shell.return_value = 'versionName=1.2.39-Occident-debug'
+        context = {'phone':'p','glasses':'g','glasses_name':'测试','app_version':'1.2.39-Occident-debug','config':{'package':'test.app','model':'test'}}
         out = execute(self.root, self.file, Mapping(), ['选择'], context, StopDuringCase(), lambda *a: None)
         popen.return_value.terminate.assert_called_once()
         self.assertEqual(out['summary']['选择'], {'INTERRUPTED':1,'NOT_RUN':1})
@@ -142,6 +155,16 @@ class CoreTests(unittest.TestCase):
         fixture(self.file, {'选择': self.rows})
         with self.assertRaisesRegex(ValueError, '已发生变化'):
             execute(self.root, self.file, Mapping(), ['选择'], {'input_sha256':'old'}, threading.Event(), lambda *a:None)
+
+    def test_final_top_statistics_use_selected_summary(self):
+        summary = {'已选': {'PASS': 1, 'FAIL': 2, 'NOT_IMPLEMENTED': 3, 'SKIPPED': 4},
+                   '未选': {'NOT_RUN': 9}}
+        counts = summarize_selected(summary, {'已选'})
+        self.assertEqual(counts['PASS'], 1)
+        self.assertEqual(counts['FAIL'], 2)
+        self.assertEqual(counts['NOT_IMPLEMENTED'], 3)
+        self.assertEqual(counts['SKIPPED'], 4)
+        self.assertEqual(counts['NOT_RUN'], 0)
 
 
 if __name__ == '__main__':

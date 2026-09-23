@@ -14,6 +14,16 @@ from .runner import execute, registry
 
 
 BLUETOOTH_ONLY = '仅蓝牙连接（眼镜未接 USB）'
+FINAL_STATUSES = ('PASS', 'FAIL', 'ERROR', 'BLOCKED', 'NOT_IMPLEMENTED', 'NOT_APPLICABLE', 'SKIPPED', 'INTERRUPTED')
+
+
+def summarize_selected(summary, selected):
+    """用落盘的最终汇总重算顶部统计，不能依赖 GUI 消息到达时序。"""
+    counts = {status: 0 for status in (*FINAL_STATUSES, 'NOT_RUN', 'RUNNING')}
+    for sheet in selected:
+        for status, number in summary.get(sheet, {}).items():
+            counts[status] = counts.get(status, 0) + number
+    return counts
 
 
 class App(tk.Tk):
@@ -32,7 +42,7 @@ class App(tk.Tk):
         self.devices_by_label = {}
         self.current_folder = None
         self.total = self.completed = self.passed = self.failed = 0
-        self.blocked = self.unimplemented = self.not_applicable = self.skipped = 0
+        self.blocked = self.unimplemented = self.not_applicable = self.skipped = self.interrupted = 0
         self.controls = []
         self.path = tk.StringVar()
         self.phone = tk.StringVar()
@@ -335,7 +345,7 @@ class App(tk.Tk):
         pending = max(0, self.total - self.completed)
         values = [('待执行', pending), ('通过', self.passed), ('失败', self.failed),
                   ('阻塞', self.blocked), ('未实现', self.unimplemented),
-                  ('不适用', self.not_applicable), ('跳过', self.skipped)]
+                  ('不适用', self.not_applicable), ('跳过', self.skipped), ('中断', self.interrupted)]
         self.run_stats.set('本轮结果：' + ' / '.join(f'{label} {count}' for label, count in values
                                                 if count or label in ('待执行', '通过', '失败')))
 
@@ -358,7 +368,7 @@ class App(tk.Tk):
         # self.selected 是集合，只用于保存勾选状态；执行顺序以表格模块的显示顺序为准。
         selected, source = [name for name in self.modules if name in self.selected], self.path.get()
         self.completed = self.passed = self.failed = 0
-        self.blocked = self.unimplemented = self.not_applicable = self.skipped = 0
+        self.blocked = self.unimplemented = self.not_applicable = self.skipped = self.interrupted = 0
         self.total = 0
         self.refresh_run_stats()
         self.progress['value'] = 0
@@ -455,6 +465,8 @@ class App(tk.Tk):
                         self.not_applicable += 1
                     elif value['status'] == 'SKIPPED':
                         self.skipped += 1
+                    elif value['status'] == 'INTERRUPTED':
+                        self.interrupted += 1
                     self.refresh_run_stats()
                     self.progress['value'] = self.completed
                     self.status.set(f'{self.completed}/{self.total}  {value["sheet"]} / {value["id"]}：{LABELS[value["status"]]}')
@@ -467,6 +479,17 @@ class App(tk.Tk):
                 elif kind == 'done':
                     self.stop_button.configure(state='disabled')
                     self.current_folder = value['folder']
+                    counts = summarize_selected(value['summary'], self.selected)
+                    self.total = sum(counts.values())
+                    self.completed = self.total - counts['NOT_RUN'] - counts['RUNNING']
+                    self.passed = counts['PASS']
+                    self.failed = counts['FAIL'] + counts['ERROR']
+                    self.blocked = counts['BLOCKED']
+                    self.unimplemented = counts['NOT_IMPLEMENTED']
+                    self.not_applicable = counts['NOT_APPLICABLE']
+                    self.skipped = counts['SKIPPED']
+                    self.interrupted = counts['INTERRUPTED']
+                    self.refresh_run_stats()
                     for row in self.tree.get_children():
                         name = self.tree.set(row, 'module')
                         self.tree.set(row, 'progress', ' / '.join(f'{LABELS[k]} {v}' for k, v in value['summary'].get(name, {}).items()))
