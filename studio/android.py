@@ -19,8 +19,10 @@ class Android:
         config = self.context['config']
         self.driver = webdriver.Remote(config['appium_url'], options=UiAutomator2Options().load_capabilities({
             'platformName': 'Android', 'appium:automationName': 'UiAutomator2',
+            # 不传 appActivity：SplashActivity 会自行结束，UiAutomator2 会话恢复时
+            # 若显式携带它可能把 APP 带回桌面。前台恢复统一由 ensure_foreground 的 Launcher Intent 完成。
             'appium:udid': self.context['phone'], 'appium:appPackage': config['package'],
-            'appium:appActivity': config['activity'], 'appium:noReset': True,
+            'appium:noReset': True,
             'appium:autoLaunch': False, 'appium:newCommandTimeout': config.get('new_command_timeout', 60)}))
         if os.environ.get('GLASSES_EVIDENCE_DIR'):
             (Path(os.environ['GLASSES_EVIDENCE_DIR'])/'session.json').write_text(json.dumps({
