@@ -403,21 +403,23 @@ class GalleryPage:
         # 图片在相册中可能带 EXIF 旋转，水印可能落在显示上方或下方；仅扫描两端以避免画面正文误判。
         regions = [(0, int(height * .72), width, height), (0, 0, width, int(height * .28))]
         if label == 'system-share-sheet':
-            # Samsung 分享弹窗的图片预览位于屏幕中段。
-            regions.append((0, int(height * .30), width, int(height * .72)))
+            # Samsung 分享弹窗中预览图底部约在屏幕 54%–67%，水印位于该区域左下角。
+            regions.append((0, int(height * .54), width, int(height * .67)))
         if video:
             regions = [(0, int(height * .55), int(width * .65), height)]
         texts = []
         for region in regions:
             crop = image.crop(region)
             # 原图通常已是 4K；限制 OCR 输入宽度，避免长时间没有 Appium 指令而会话超时。
-            if crop.width < 1600:
+            if label == 'system-share-sheet' and region[1] == int(height * .54):
+                crop = crop.resize((crop.width * 4, crop.height * 4))
+            elif crop.width < 1600:
                 crop = crop.resize((crop.width * 2, crop.height * 2))
             elif crop.width > 4000:
                 crop = crop.resize((4000, max(1, int(crop.height * 4000 / crop.width))))
             texts += [pytesseract.image_to_string(crop, config=f'--psm {mode}').lower() for mode in (6, 11)]
         compact = ''.join(re.sub(r'[^a-z]', '', value) for value in texts)
-        # 分享弹窗把预览缩小到约 1/6，首字母 V 常被压缩为 B/I；保留 ``ionray`` 作为该预览的关键标志。
+        # 分享弹窗把预览缩小到约 1/6，首字母 V 偶尔会被压缩误读；保留 ``ionray`` 作为兜底关键标志。
         marker_found = 'vision' in compact or (label == 'system-share-sheet' and 'ionray' in compact)
         if not marker_found:
             self.a.capture(label + '-watermark-not-found')
