@@ -68,14 +68,32 @@ def test_photo_watermark_share(android):
 def test_video_watermark(android):
     def action():
         page = SettingsPage(android); page.capture(); page.toggle_round_trip('video_watermark_switch'); page.on('video_watermark_switch')
-        gallery = GalleryPage(android); gallery.open(); gallery.preview_first(); gallery.assert_visionray_watermark(video=True)
+        gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
+        BleMediaCommands(android).record_video()
+        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '录像后新增待导入媒资', 90)
+        gallery.import_from('home'); gallery.preview_latest('video'); gallery.assert_visionray_watermark(video=True)
         gallery.action('play_btn', '播放视频'); __import__('time').sleep(2)
-        gallery.action('pause_btn', '暂停后抽查视频帧'); gallery.assert_visionray_watermark(video=True)
+        gallery.action('play_btn', '暂停后抽查视频帧'); gallery.assert_visionray_watermark(video=True)
     run(android, action)
 
 
 def test_auto_save_album(android):
-    run(android, lambda: (SettingsPage(android).capture(), SettingsPage(android).toggle_round_trip('auto_save_album_switch')))
+    def action():
+        page = SettingsPage(android); page.capture(); page.toggle_round_trip('auto_save_album_switch'); page.on('auto_save_album_switch')
+        # 该用例验证自动保存本身，先关闭水印，避免把水印用例的结果混入判断。
+        page.on('photo_watermark_switch'); page.one('photo_watermark_switch').click()
+        page.on('video_watermark_switch'); page.one('video_watermark_switch').click()
+        gallery = GalleryPage(android); images = gallery.phone_album_count('image'); videos = gallery.phone_album_count('video')
+        command = BleMediaCommands(android); before = gallery.pending_count_or_zero('home')
+        command.take_photo()
+        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '拍照后新增待导入媒资', 90)
+        gallery.import_from('home')
+        android.wait(lambda: gallery.phone_album_count('image') >= images + 1, '导入图片后手机相册自动保存图片', 90)
+        before = gallery.pending_count_or_zero('home'); command.record_video()
+        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '录像后新增待导入媒资', 120)
+        gallery.import_from('home')
+        android.wait(lambda: gallery.phone_album_count('video') >= videos + 1, '导入视频后手机相册自动保存视频', 120)
+    run(android, action)
 
 
 def test_capture_video_duration(android):

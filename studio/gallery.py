@@ -328,7 +328,7 @@ class GalleryPage:
     def preview_latest(self, kind):
         """打开空间页最新导入的一条媒资，并防止下载测试误用历史文件。"""
         self.open()
-        self.media()[0].click()
+        self.media()[-1].click()
         self.a.wait(self.preview_ready, '最新媒资预览页', 12)
         is_video = bool(self.all('playerView') or self.all('play_btn'))
         if (kind == 'video') != is_video:
@@ -487,3 +487,4 @@ class GalleryPage:
         time.sleep(1)
         if abs(seconds() - paused) > 1:
             raise AssertionError('暂停后视频播放时间仍在变化。')
+
