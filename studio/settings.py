@@ -1,6 +1,7 @@
 """AI、拍摄及系统设置的最小公共页面动作。"""
 from .errors import TestBlocked
 from .home_device import HomeDevicePage
+from io import BytesIO
 
 
 class SettingsPage:
@@ -44,10 +45,30 @@ class SettingsPage:
             raise AssertionError(f'{resource} 应唯一显示，实际 {len(found)} 项。')
         return found[0]
 
-    @staticmethod
-    def is_on(control):
+    def is_on(self, control):
         # 新版 Compose Switch 的 checkable/checked 恒为 false，以 selected 反映状态。
-        return control.get_attribute('checked') == 'true' or control.get_attribute('selected') == 'true'
+        if control.get_attribute('checked') == 'true' or control.get_attribute('selected') == 'true':
+            return True
+        # 当前 Capture 页面开关未暴露可访问状态，读取白色滑块位于控件左/右半边的位置。
+        try:
+            from PIL import Image
+            image = Image.open(BytesIO(self.a.driver.get_screenshot_as_png())).convert('RGB')
+            rect = control.rect
+            middle = int(rect['x'] + rect['width'] / 2)
+            y0, y1 = int(rect['y']), int(rect['y'] + rect['height'])
+            pixels = image.load()
+            left = right = 0
+            for y in range(y0, y1, 2):
+                for x in range(int(rect['x']), int(rect['x'] + rect['width']), 2):
+                    red, green, blue = pixels[x, y]
+                    if red > 225 and green > 225 and blue > 225:
+                        if x < middle:
+                            left += 1
+                        else:
+                            right += 1
+            return right > left
+        except Exception as error:
+            raise TestBlocked('无法读取开关图形状态：' + str(error)) from error
 
     def on(self, resource):
         control = self.one(resource)

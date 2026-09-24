@@ -45,19 +45,23 @@ def _prepare_watermarked_photo(android):
     gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
     BleMediaCommands(android).take_photo()
     android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '拍照后新增待导入媒资', 60)
-    gallery.import_from('home'); gallery.open(); gallery.preview_first(); gallery.assert_visionray_watermark()
+    gallery.import_from('home'); gallery.preview_latest('image')
     return gallery
 
 
 def test_photo_watermark_download(android):
-    run(android, lambda: _prepare_watermarked_photo(android).download())
+    def action():
+        gallery = _prepare_watermarked_photo(android)
+        gallery.assert_downloaded_image_watermark(gallery.download_and_assert_phone_added('image'))
+    run(android, action)
 
 
 def test_photo_watermark_share(android):
     def action():
         gallery = _prepare_watermarked_photo(android)
-        gallery.share()
+        gallery.share(); gallery.assert_share_sheet_watermark()
         android.driver.press_keycode(4)
+        android.ensure_foreground()
     run(android, action)
 
 

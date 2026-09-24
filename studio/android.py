@@ -23,7 +23,7 @@ class Android:
             # 若显式携带它可能把 APP 带回桌面。前台恢复统一由 ensure_foreground 的 Launcher Intent 完成。
             'appium:udid': self.context['phone'], 'appium:appPackage': config['package'],
             'appium:noReset': True,
-            'appium:autoLaunch': False, 'appium:newCommandTimeout': config.get('new_command_timeout', 60)}))
+            'appium:autoLaunch': False, 'appium:newCommandTimeout': max(config.get('new_command_timeout', 60), 180)}))
         if os.environ.get('GLASSES_EVIDENCE_DIR'):
             (Path(os.environ['GLASSES_EVIDENCE_DIR'])/'session.json').write_text(json.dumps({
                 'url': config['appium_url'], 'session_id': self.driver.session_id}), encoding='utf-8')
@@ -50,6 +50,13 @@ class Android:
             for attempt in range(3):
                 if focused():
                     break
+                # 分享用例会暂时进入 Android Chooser；若上条异常中断，先退出它，
+                # 否则 Launcher Intent 会被系统面板拦截，造成后续用例假性启动失败。
+                current = self.driver.current_package
+                if current in ('com.android.intentresolver', 'android'):
+                    self.log('dismiss-system-panel', {'package': current, 'attempt': attempt + 1})
+                    self.driver.press_keycode(4)
+                    time.sleep(.5)
                 self.log('launch-app', {'from': self.driver.current_package, 'target': package,
                                         'attempt': attempt + 1})
                 # 不得使用 SplashActivity 或 activate_app；两者可能在启动初始化后回到桌面。

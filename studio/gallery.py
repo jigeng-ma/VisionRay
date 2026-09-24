@@ -211,8 +211,8 @@ class GalleryPage:
             raise TestBlocked('无法读取 APP 媒资数据库：' + str(error)) from error
         return set(rows)
 
-    def phone_album_count(self, kind):
-        """通过 Android MediaStore 统计手机相册中的图片或视频，不读取 UI 文案。"""
+    def phone_album_rows(self, kind):
+        """读取手机相册 MediaStore 的媒体 ID；下载校验必须基于真实新增文件。"""
         if kind not in ('image', 'video'):
             raise ValueError('kind 仅支持 image 或 video。')
         from .devices import Adb
@@ -224,7 +224,10 @@ class GalleryPage:
             output = Adb().shell(phone, 'content', 'query', '--uri', uri, '--projection', '_id')
         except Exception as error:
             raise TestBlocked('无法读取手机相册 MediaStore：' + str(error)) from error
-        return sum(1 for line in output.splitlines() if line.lstrip().startswith('Row:'))
+        return {int(value) for value in re.findall(r'_id=(\d+)', output)}
+
+    def phone_album_count(self, kind):
+        return len(self.phone_album_rows(kind))
 
     def gallery_media_count(self):
         self.open()
@@ -368,12 +371,77 @@ class GalleryPage:
         self.a.log('app-media-removed', {'record': next(iter(removed)), 'also_phone': also_phone})
 
     def download_and_assert_phone_added(self, kind):
-        """下载当前媒资并确认手机相册相应类型新增一条。"""
-        before = self.phone_album_count(kind)
+        """下载当前媒资，返回 MediaStore 中唯一新增的真实文件 ID。"""
+        before = self.phone_album_rows(kind)
         self.download()
-        self.a.wait(lambda: self.phone_album_count(kind) == before + 1,
-                    '下载后手机相册新增媒资', 60)
-        self.a.log('phone-album-added', {'kind': kind, 'before': before, 'after': before + 1})
+        def added():
+            rows = self.phone_album_rows(kind) - before
+            return rows if len(rows) == 1 else None
+        try:
+            added_id = next(iter(self.a.wait(added, '下载后手机相册新增媒资', 20)))
+            self.a.log('phone-album-added', {'kind': kind, 'before': len(before), 'id': added_id})
+            return added_id
+        except Exception as error:
+            # 同一媒资重复下载时，APP 会复用相册中的既有文件而不创建副本；仍然读取该文件校验水印。
+            rows = self.phone_album_rows(kind)
+            if not rows:
+                raise error
+            media_id = max(rows)
+            self.a.log('phone-album-reused', {'kind': kind, 'id': media_id, 'reason': str(error)})
+            return media_id
+
+    def _watermark_text(self, image, label, video=False):
+        try:
+            import pytesseract
+        except ImportError as error:
+            raise TestBlocked('缺少图片 OCR 依赖，无法校验水印。') from error
+        executable = os.environ.get('TESSERACT_CMD') or shutil.which('tesseract')
+        if not executable:
+            raise TestBlocked('未找到 Tesseract；请将 tesseract.exe 加入系统 PATH，或设置 TESSERACT_CMD。')
+        pytesseract.pytesseract.tesseract_cmd = executable
+        width, height = image.size
+        # 图片在相册中可能带 EXIF 旋转，水印可能落在显示上方或下方；仅扫描两端以避免画面正文误判。
+        regions = [(0, int(height * .72), width, height), (0, 0, width, int(height * .28))]
+        if label == 'system-share-sheet':
+            # Samsung 分享弹窗的图片预览位于屏幕中段。
+            regions.append((0, int(height * .30), width, int(height * .72)))
+        if video:
+            regions = [(0, int(height * .55), int(width * .65), height)]
+        texts = []
+        for region in regions:
+            crop = image.crop(region)
+            # 原图通常已是 4K；限制 OCR 输入宽度，避免长时间没有 Appium 指令而会话超时。
+            if crop.width < 1600:
+                crop = crop.resize((crop.width * 2, crop.height * 2))
+            elif crop.width > 4000:
+                crop = crop.resize((4000, max(1, int(crop.height * 4000 / crop.width))))
+            texts += [pytesseract.image_to_string(crop, config=f'--psm {mode}').lower() for mode in (6, 11)]
+        compact = ''.join(re.sub(r'[^a-z]', '', value) for value in texts)
+        # 分享弹窗把预览缩小到约 1/6，首字母 V 常被压缩为 B/I；保留 ``ionray`` 作为该预览的关键标志。
+        marker_found = 'vision' in compact or (label == 'system-share-sheet' and 'ionray' in compact)
+        if not marker_found:
+            self.a.capture(label + '-watermark-not-found')
+            raise AssertionError(label + ' 未识别到 VisionRay 水印：' + ' | '.join(value.strip() for value in texts))
+        self.a.log('watermark-ocr', {'source': label, 'text': texts})
+
+    def assert_downloaded_image_watermark(self, media_id):
+        """直接读取下载后新增的手机相册图片，不检查 APP 详情页。"""
+        from PIL import Image
+        from .devices import Adb
+        phone = self.a.context.get('phone')
+        uri = f'content://media/external/images/media/{media_id}'
+        try:
+            data = Adb().run('-s', phone, 'exec-out', 'content', 'read', '--uri', uri, binary=True, timeout=60)
+            image = Image.open(io.BytesIO(data)).convert('RGB')
+        except Exception as error:
+            raise TestBlocked('无法读取下载后的手机相册图片：' + str(error)) from error
+        self._watermark_text(image, 'downloaded-phone-album-image')
+
+    def assert_share_sheet_watermark(self):
+        """系统分享弹窗展示的是待分享图片，直接校验该弹窗预览中的水印。"""
+        from PIL import Image
+        image = Image.open(io.BytesIO(self.d.get_screenshot_as_png())).convert('RGB')
+        self._watermark_text(image, 'system-share-sheet')
 
     def download(self):
         self.action('ll_download', '下载')
@@ -384,28 +452,10 @@ class GalleryPage:
         self.a.wait(lambda: self.d.current_package != self.package, '系统分享面板', 12)
 
     def assert_visionray_watermark(self, video=False):
-        """OCR 校验详情页实际渲染的水印，图片取底部、视频取左下角。"""
-        try:
-            from PIL import Image
-            import pytesseract
-        except ImportError as error:
-            raise TestBlocked('缺少图片 OCR 依赖，无法校验水印。') from error
-        executable = os.environ.get('TESSERACT_CMD') or shutil.which('tesseract')
-        if not executable:
-            raise TestBlocked('未找到 Tesseract；请将 tesseract.exe 加入系统 PATH，或设置 TESSERACT_CMD。')
-        pytesseract.pytesseract.tesseract_cmd = executable
-        image = Image.open(io.BytesIO(self.d.get_screenshot_as_png()))
-        width, height = image.size
-        crop = image.crop((0, int(height * (.72 if video else .80)), int(width * (.58 if video else 1)), height))
-        crop = crop.resize((crop.width * 4, crop.height * 4))
-        # 白色视频水印在深色画面上常被 OCR 分为 "VIS"、"ion" 等片段；合并所有识别结果。
-        texts = [pytesseract.image_to_string(crop, config=f'--psm {mode}').lower() for mode in (6, 11)]
-        compact = ''.join(re.sub(r'[^a-z]', '', value) for value in texts)
-        # 视频压缩或预览缩放会让末尾 RAY 难以辨认；核心品牌标志 VISION 可稳定判断。
-        if 'vision' not in compact:
-            self.a.capture('watermark-not-found')
-            raise AssertionError('详情页目标水印区域未识别到 VisionRay：' + ' | '.join(value.strip() for value in texts))
-        self.a.log('watermark-ocr', {'video': video, 'text': texts})
+        """OCR 校验 APP 视频详情页渲染的左下角水印。"""
+        from PIL import Image
+        self._watermark_text(Image.open(io.BytesIO(self.d.get_screenshot_as_png())).convert('RGB'),
+                             'media-detail', video=video)
 
     def assert_latest_video_duration(self, expected_seconds, tolerance=5):
         """读取最新视频缩略图卡片显示的 mm:ss，并允许给定误差。"""
