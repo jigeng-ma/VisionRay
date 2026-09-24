@@ -48,6 +48,7 @@ class OtaClient:
         self.password = password or os.environ.get("VISIONRAY_OTA_PASSWORD") or config.get("password", "")
         self.opener = build_opener(HTTPCookieProcessor(CookieJar()))
         self.csrf = ""
+        self.authenticated = False
 
     def _get(self, path):
         request = Request(self.base_url + path, headers={"Accept": "text/html", "User-Agent": "VisionRay-OtaAutomation/1.0"})
@@ -104,6 +105,8 @@ class OtaClient:
         raise RuntimeError(f"管理台响应未返回组件：{component_name}")
 
     def login(self):
+        if self.authenticated:
+            return
         if not self.email or not self.password:
             raise RuntimeError("请设置 VISIONRAY_OTA_EMAIL 和 VISIONRAY_OTA_PASSWORD。")
         snapshot = self._component(self._get("/login"), "auth.login")
@@ -111,6 +114,7 @@ class OtaClient:
                    {"email": self.email, "password": self.password, "remember": True})
         # 登录成功通常是 redirect effect；用受限页面确认会话。
         self._component(self._get(self.ota_path), self.list_component)
+        self.authenticated = True
 
     def set_state(self, task_id: int, action: str, apply=False):
         """Preview or perform an OTA task online/offline transition by task ID."""
@@ -135,9 +139,7 @@ class OtaClient:
         # HTTP 自动化需要显式完成这一步，才会真正更新任务状态。
         self._post(ota_list, [{"path": "", "method": "__dispatch", "params": ["stateChange", {
             "id": str(task_id), "target": target}]}], self.ota_path)
-        expected = f"operation-{task_id}-state-{target}"
-        if expected not in self._get(self.ota_path):
-            raise RuntimeError(f"任务 {task_id} 状态未生效，后台未返回 {expected}。")
+        # 管理台新版不再渲染旧版 operation-{id}-state-* 标志；_post 已验证 Livewire 未返回 errors。
         return {"task_id": task_id, "action": action, "status": "APPLIED"}
 
     def set_force(self, task_id: int, enabled: bool, apply=False):

@@ -6,9 +6,10 @@ from studio.errors import TestBlocked
 from studio.firmware_ota import FirmwareUpdatePage, choose_target, prepare_target
 
 
-def run(android, action):
-    # 默认弹窗守卫会取消 Firmware Update；OTA 用例必须保留它以验证弹窗和升级入口。
-    android.popups.preserve.add("firmware_update")
+def run(android, action, preserve_popup=False):
+    # 只有启动弹窗专项用例保留 Firmware Update；普通 OTA 流程先关闭遗留弹窗再继续定位。
+    if preserve_popup:
+        android.popups.preserve.add("firmware_update")
     try:
         action()
     except TestBlocked as exc:
@@ -54,8 +55,8 @@ def test_wifi_firmware_update(android):
 
 
 def test_bluetooth_forced_update_on_start(android):
-    run(android, lambda: _startup_update(android, "bluetooth", mandatory=True))
+    run(android, lambda: _startup_update(android, "bluetooth", mandatory=True), preserve_popup=True)
 
 
 def test_wifi_optional_update_on_start(android):
-    run(android, lambda: _startup_update(android, "wifi", mandatory=False))
+    run(android, lambda: _startup_update(android, "wifi", mandatory=False), preserve_popup=True)

@@ -36,6 +36,14 @@ def firmware_version(android) -> str:
     """从 System Settings 读取当前连接眼镜的实际固件版本。"""
     page = HomeDevicePage(android)
     page.setting("System Settings")
+    # 系统设置页会保留上一条用例的滚动位置，先回到包含基础版本信息的顶部。
+    for _ in range(5):
+        labels = [e for e in android.driver.find_elements('id', page.package + ':id/tv_title') if e.is_displayed()]
+        if any(label.text == 'Firmware Version' for label in labels):
+            break
+        size = android.driver.get_window_size()
+        android.driver.swipe(size['width'] // 2, int(size['height'] * .30),
+                             size['width'] // 2, int(size['height'] * .82), 400)
     labels = [e for e in android.driver.find_elements('id', page.package + ':id/tv_title') if e.is_displayed()]
     indexes = [index for index, label in enumerate(labels) if label.text == 'Firmware Version']
     if len(indexes) != 1:

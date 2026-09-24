@@ -141,11 +141,23 @@ class SettingsPage:
             raise AssertionError(f'时长未更新为 {expected}：{hints}')
 
     def confirm(self, resource, success):
-        self.one(resource).click()
+        control = None
+        for _ in range(7):
+            found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource) if e.is_displayed()]
+            if len(found) == 1:
+                control = found[0]
+                break
+            size = self.a.driver.get_window_size()
+            self.a.driver.swipe(size['width'] // 2, int(size['height'] * .78),
+                                size['width'] // 2, int(size['height'] * .30), 400)
+        if not control:
+            raise AssertionError(f'{resource} 未出现在系统设置页。')
+        control.click()
         button = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath',
             "//*[@text='OK' or @text='Confirm']") if e.is_displayed() and e.is_enabled()), None), '确认按钮', 10)
         button.click()
-        self.home.text(success, 20)
+        if success:
+            self.home.text(success, 20)
 
     def factory_reset(self):
         if __import__('os').environ.get('GLASSES_ALLOW_FACTORY_RESET') != '1':

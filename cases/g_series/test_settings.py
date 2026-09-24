@@ -125,7 +125,8 @@ def test_system_recording_duration(android):
 
 def test_system_restart(android):
     def action():
-        page = SettingsPage(android); page.system(); page.confirm('force_restart', 'Restarted')
+        page = SettingsPage(android); page.system(); page.confirm('force_restart', None)
+        HomeDevicePage(android).connected()
     run(android, action)
 
 
