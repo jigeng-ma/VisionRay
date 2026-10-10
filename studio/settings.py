@@ -93,7 +93,21 @@ class SettingsPage:
                           f"//*[@package='{self.package}' and @text]"))), None)
         if not label:
             raise TestBlocked('未找到设置项：' + ' / '.join(labels))
-        # 当前 UiAutomator2 不能稳定从文本节点向上查找父节点；开关位于同一行右侧。
+        # 新版 DP AI 暴露专用开关资源；优先读取滑块真实位置，不能用页面元素列表的
+        # selected 变化判断，因为 Compose View 的 selected 始终为 false。
+        direct = [e for e in self.a.driver.find_elements('id', self.package + ':id/voice_wakeup_switch')
+                  if e.is_displayed()]
+        if len(direct) == 1:
+            control = direct[0]
+            original = self.is_on(control)
+            control.click()
+            self.a.wait(lambda: self.is_on(self.one('voice_wakeup_switch')) != original,
+                        '语音唤醒开关切换', 8)
+            self.one('voice_wakeup_switch').click()
+            self.a.wait(lambda: self.is_on(self.one('voice_wakeup_switch')) == original,
+                        '语音唤醒开关恢复', 8)
+            return
+        # 旧版 UiAutomator2 不能稳定从文本节点向上查找父节点；开关位于同一行右侧。
         rect = label.rect
         x, y = int(self.a.driver.get_window_size()['width'] * .88), int(rect['y'] + rect['height'] / 2)
         def states():

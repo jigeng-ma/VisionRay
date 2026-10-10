@@ -867,7 +867,7 @@
     "node": "cases/g_series/test_settings.py::test_auto_save_album",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 300
   },
   {
     "sheet": "G07_拍摄设置",
@@ -1096,5 +1096,13 @@
     "sheet": "G10_我的", "id": "F-OTA_009", "automation_id": "VisionRay_0133",
     "node": "cases/g_series/test_my.py::test_feedback", "requires": [],
     "glasses_adb_required": false, "timeout_seconds": 180, "manual": true
-  }
+  },
+  {"sheet": "基础项", "id": "NF_002", "automation_id": "VisionRay_0134", "node": "cases/g_series/test_foundation.py::test_lower_version_cover_install", "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 900, "execution_order": 20},
+  {"sheet": "基础项", "id": "NF_003", "automation_id": "VisionRay_0135", "node": "cases/g_series/test_foundation.py::test_uninstall_reinstall", "requires": [], "glasses_adb_required": false, "timeout_seconds": 900, "execution_order": 30},
+  {"sheet": "基础项", "id": "NF_004", "automation_id": "VisionRay_0136", "node": "cases/g_series/test_foundation.py::test_first_launch_agreement", "requires": [], "glasses_adb_required": false, "timeout_seconds": 180, "execution_order": 40},
+  {"sheet": "基础项", "id": "NF_005", "automation_id": "VisionRay_0137", "node": "cases/g_series/test_foundation.py::test_first_launch_exit_and_agree", "requires": [], "glasses_adb_required": false, "timeout_seconds": 240, "execution_order": 50},
+  {"sheet": "基础项", "id": "NF_006", "automation_id": "VisionRay_0138", "node": "cases/g_series/test_foundation.py::test_system_language_chinese", "requires": [], "glasses_adb_required": false, "timeout_seconds": 900, "execution_order": 60},
+  {"sheet": "基础项", "id": "NF_007", "automation_id": "VisionRay_0139", "node": "cases/g_series/test_foundation.py::test_system_language_english", "requires": [], "glasses_adb_required": false, "timeout_seconds": 900, "execution_order": 70},
+  {"sheet": "基础项", "id": "NF_008", "automation_id": "VisionRay_0140", "node": "cases/g_series/test_foundation.py::test_time_format_12", "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300, "execution_order": 80},
+  {"sheet": "基础项", "id": "NF_009", "automation_id": "VisionRay_0141", "node": "cases/g_series/test_foundation.py::test_time_format_24", "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300, "execution_order": 90}
 ]

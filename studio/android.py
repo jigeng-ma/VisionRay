@@ -44,8 +44,17 @@ class Android:
                 # mFocusedApp 在切到桌面后可能仍保留旧 APP；只有 mCurrentFocus 代表当前窗口。
                 # 启动器会先短暂显示 SplashActivity；它结束前不能开始找业务元素，
                 # 否则部分机型会在初始化后回到桌面而产生“启动成功”的假象。
-                return any(package in line and 'SplashActivity' not in line
-                           for line in output.splitlines() if 'mCurrentFocus' in line)
+                current = [line for line in output.splitlines() if 'mCurrentFocus' in line]
+                if any(package in line and 'SplashActivity' not in line for line in current):
+                    return True
+                # 首次协议由 SplashActivity 承载。普通用例会先由 PopupGuard 同意协议；
+                # 但 NF_004/NF_005 明确保留该页做断言，因此仅在协议元素真实存在时
+                # 将它作为合法前台，不能放宽为任意 SplashActivity。
+                source = self.driver.page_source
+                return (any(package in line and 'SplashActivity' in line for line in current)
+                        and (f'{package}:id/ll_user_privacy' in source
+                             or f'{package}:id/tvPolicyTitle' in source)
+                        and f'{package}:id/tv_agree' in source)
 
             for attempt in range(3):
                 if focused():

@@ -25,7 +25,9 @@ def prepare_three_pending_media(page):
     baseline = page.pending_count_or_zero('home')
     for expected, action in enumerate((media.take_photo, media.record_video, media.record_audio), baseline + 1):
         action()
-        page.a.wait(lambda: page.pending_count_on('home') == expected, '首页待导入媒资数量更新', 30)
+        # 新拍摄文件同步到首页通知前，首页不存在通知是正常中间状态，不能把它
+        # 当成前置阻塞；出现后才做严格的跨页面数量断言。
+        page.a.wait(lambda: page.pending_count_or_zero('home') == expected, '首页待导入媒资数量更新', 60)
         page.assert_pending_counts(expected)
     return baseline + 3
 

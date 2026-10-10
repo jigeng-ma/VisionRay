@@ -57,9 +57,9 @@ class HomeDevicePage:
 
     def setting(self, label):
         self.home()
-        # 首页卡片和设置项均可能叫 DP AI；新版系统设置入口文案为 System。
-        actual = {'System Settings': 'System'}.get(label, label)
-        self._labeled('tv_list_title', actual).click()
+        # 当前首页入口文案为 System Settings；不要把它缩写成 System，
+        # 否则会在新 UI 上找不到该项。
+        self._labeled('tv_list_title', label).click()
         self.a.log('click-setting', label)
 
     def assert_page(self, title, marker):

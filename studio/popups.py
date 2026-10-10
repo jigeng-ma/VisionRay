@@ -38,11 +38,34 @@ class PopupGuard:
                 return True
         raise TestBlocked('已识别 VisionRay 系统权限弹窗，但未找到允许按钮。')
 
+    def _accept_first_launch(self, nodes, texts, packages):
+        """非首次启动验证用例遇到隐私协议时，完成必要同意并继续执行。"""
+        package = self.android.context['config']['package']
+        resource_ids = {n.get('resource-id') for n in nodes}
+        # 登录页也会显示协议链接；仅首次 Splash 协议页有此容器/标题和同意按钮。
+        # 不能依赖英文文案：系统语言切换后该页会显示中文。
+        first_page = {package + ':id/ll_user_privacy', package + ':id/tvPolicyTitle'}
+        if (package not in packages or not first_page.intersection(resource_ids)
+                or package + ':id/tv_agree' not in resource_ids):
+            return False
+        if 'first_launch' in self.preserve:
+            return False
+        buttons = [e for e in self.android.driver.find_elements('id', package + ':id/tv_agree')
+                   if e.is_displayed() and e.is_enabled()]
+        if len(buttons) != 1:
+            raise TestBlocked('已识别首次隐私协议弹窗，但 Agree 按钮不唯一或缺失。')
+        self.android.capture('popup-first-launch')
+        buttons[0].click()
+        self.android.log('popup', 'first_launch')
+        return True
+
     def handle(self):
         a = self.android
         nodes = list(ET.fromstring(a.driver.page_source).iter())
         texts = [n.get('text', '') for n in nodes if n.get('text')]
         packages = {n.get('package') for n in nodes}
+        if self._accept_first_launch(nodes, texts, packages):
+            return True
         if self._allow_system_permission(texts, packages):
             return True
         rules = a.context['config'].get('popup_rules', [])

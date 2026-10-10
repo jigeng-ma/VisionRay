@@ -92,6 +92,10 @@ class PairingPage:
     def prepare_search(self):
         a = self.a
         a.ensure_foreground()
+        # APP 可能保留在相册详情等业务二级页；先回到首页再判断绑定状态。
+        if not (a.find('pair.add') or a.find('pair.home_title') or a.find('pair.tutorial_title')):
+            from .home_device import HomeDevicePage
+            HomeDevicePage(a).home()
         try:
             a.wait(lambda: a.find('pair.add') or a.find('pair.home_title') or a.find('pair.tutorial_title'),
                    'APP 启动后识别配对前提页面', 20)
@@ -99,8 +103,11 @@ class PairingPage:
             raise TestBlocked('APP 已打开，但未找到未绑定首页入口。当前页面：' +
                               a.driver.current_activity + '；请检查登录状态、页面或遮挡弹窗。') from exc
         if not a.find('pair.add'):
-            raise TestBlocked('当前为已绑定首页或使用引导页，不满足首次绑定前提。当前页面：' +
-                              a.driver.current_activity + '；请解除绑定并回到 Add Device 首页。')
+            # 配对用例必须能够独立运行。已绑定不是外部阻塞条件，先走 APP 的
+            # 正常解绑流程，再重新识别 Add Device 首页。
+            from .home_device import HomeDevicePage
+            HomeDevicePage(a).unbind()
+            a.wait(lambda: a.find('pair.add'), '自动解绑后显示 Add Device 首页', 20)
         a.capture('unbound-home')
         self.enable_g_series_models()
         a.click('pair.add')

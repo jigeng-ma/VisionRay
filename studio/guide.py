@@ -26,8 +26,13 @@ class GuidePage:
     def done_to_home(self):
         a = self.a
         a.ensure_foreground()
-        if a.driver.current_activity != a.context['config']['pairing']['tutorial_activity']:
-            raise AssertionError('未处于使用引导页，无法继续验证 Done。')
+        if not self.pairing.on_tutorial():
+            # 用例可单独运行：先建立 Begin 后的引导状态，再验证 Done。
+            self.begin()
+        elif a.find('pair.tutorial_begin'):
+            # 配对用例结束在引导入口时，同样需先进入第一页。
+            a.click('pair.tutorial_begin')
+            a.wait(lambda: not a.find('pair.tutorial_begin') and a.find('pair.skip'), '进入引导第一页', 12)
         done = lambda: next((e for e in a.driver.find_elements('xpath',
             "//*[@package='%s' and @text='Done']" % a.context['config']['package']) if e.is_displayed()), None)
         for _ in range(20):
