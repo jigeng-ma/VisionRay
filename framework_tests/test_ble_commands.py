@@ -49,6 +49,52 @@ def test_counts_defaults_and_cleanup(monkeypatch):
     with pytest.raises(RuntimeError):
         p.record_audio(duration=40)
     assert [c.args[0] for c in p._click.call_args_list] == ['start_audio', 'stop_audio']
+    assert p.a.driver.press_keycode.call_count == 3
+
+
+def test_permission_page_repairs_media_permissions_and_retries(monkeypatch):
+    a = Mock(context={'config': {'product': 'G系列', 'model': 'G3', 'package': 'test'}})
+    a.driver.current_activity = 'HomeActivity'
+    tab = Mock()
+    tab.is_displayed.return_value = True
+    title = Mock(text='Permission')
+    title.is_displayed.return_value = True
+    button = Mock()
+    button.is_displayed.return_value = True
+    a.driver.find_elements.side_effect = lambda by, value: (
+        [tab] if value.endswith(':id/tabIcon') else
+        [title] if value.endswith(':id/title_tv') and a.driver.current_activity == 'PermissionActivity' else
+        [button] if value.endswith(tuple(':id/' + name for name, _ in BleMediaCommands.BUTTONS.values())) else [])
+    a.wait.side_effect = lambda predicate, *_: predicate()
+    entries = iter(('PermissionActivity', BleMediaCommands.ACTIVITY))
+    menu = Mock()
+    menu.click.side_effect = lambda: setattr(a.driver, 'current_activity', next(entries))
+    home = Mock()
+    home.return_value.text.return_value = menu
+    monkeypatch.setattr('studio.ble_commands.HomeDevicePage', home)
+    a.driver.press_keycode.side_effect = lambda _: setattr(a.driver, 'current_activity', 'HomeActivity')
+    page = BleMediaCommands(a)
+    page._enable_media_permissions = Mock()
+    page.open()
+    page._enable_media_permissions.assert_called_once_with()
+    assert menu.click.call_count == 2
+
+
+def test_permission_setup_turns_on_only_disabled_items():
+    p = media()
+    enabled = {'Photos': False, 'Microphone': True}
+    rows = {}
+    for label in enabled:
+        row = Mock()
+        row.is_displayed.return_value = True
+        row.click.side_effect = lambda name=label: enabled.__setitem__(name, True)
+        row.find_elements.side_effect = lambda *_args, name=label: [Mock(text='ON', is_displayed=Mock(return_value=True))] if enabled[name] else []
+        rows[label] = row
+    p.a.driver.find_elements.side_effect = lambda _, xpath: [rows[label] for label in rows if f"@text='{label}'" in xpath]
+    p.a.wait.side_effect = lambda predicate, *_: predicate()
+    p._enable_media_permissions()
+    rows['Photos'].click.assert_called_once_with()
+    rows['Microphone'].click.assert_not_called()
 
 
 def test_every_media_click_observes_three_second_interval(monkeypatch):
@@ -101,3 +147,17 @@ def test_setting_sufficient_or_select_smallest_and_read_back(monkeypatch):
     p.a.wait.side_effect = [options, True]
     with pytest.raises(TestBlocked, match='未生效'):
         p._ensure_duration('video', 600)
+
+
+def test_unset_duration_is_selected_instead_of_blocked(monkeypatch):
+    monkeypatch.setattr('studio.ble_commands.HomeDevicePage', Mock())
+    p = media()
+    p.a.find.return_value = None
+    p._duration_row = Mock()
+    p._duration_row.return_value.find_elements.return_value = []
+    assert p._read_duration('Video Duration') is None
+    p._read_duration = Mock(side_effect=[None, 180])
+    option = Mock(text='3Min')
+    p.a.wait.side_effect = [[option], True]
+    p._ensure_duration('video', 15)
+    option.click.assert_called_once_with()

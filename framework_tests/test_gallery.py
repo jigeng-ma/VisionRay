@@ -5,6 +5,13 @@ from studio.errors import TestBlocked
 from studio.gallery import GalleryPage
 
 
+def test_missing_import_notice_after_preparation_is_failure():
+    page = object.__new__(GalleryPage)
+    page.pending_count_or_zero = Mock(return_value=0)
+    with pytest.raises(AssertionError, match='期望 3，实际 0'):
+        page.assert_pending_counts(3)
+
+
 def page_with_card(*texts):
     page = object.__new__(GalleryPage)
     card = Mock(text='')

@@ -24,6 +24,10 @@
         "by": "xpath",
         "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Select Your Glasses\"]"
       },
+      "pair.binding_failed": {
+        "by": "xpath",
+        "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Binding Failed\"]"
+      },
       "pair.models_scroll": {
         "by": "id",
         "value": "com.dpvr.android.app.Occident:id/scrollContent"

@@ -119,7 +119,7 @@ class CoreTests(unittest.TestCase):
         fixture(self.file, {'选择': self.rows + [{'A': '002', 'F': '后续用例'}]})
         (self.root/'cases').mkdir()
         (self.root/'cases/test_fake.py').write_text('def test_case(): pass')
-        (self.root/'cases/registry.json').write_text(json.dumps([{'sheet':'选择','id':'001','node':'cases/test_fake.py::test_case','diagnostic':True}]), encoding='utf-8')
+        (self.root/'cases/registry.json').write_text(json.dumps([{'sheet':'选择','id':'001','automation_id':'VisionRay_0001','node':'cases/test_fake.py::test_case','diagnostic':True}]), encoding='utf-8')
         adb.return_value.preflight.return_value = {}
         adb.return_value.online.return_value = True
         popen.return_value.poll.side_effect = [None, 0]
@@ -132,6 +132,7 @@ class CoreTests(unittest.TestCase):
         out = execute(self.root, self.file, Mapping(), ['选择'], context, StopDuringCase(), lambda *a: None)
         popen.return_value.terminate.assert_called_once()
         self.assertEqual(out['summary']['选择'], {'INTERRUPTED':1,'NOT_RUN':1})
+        self.assertTrue((Path(out['folder'])/'evidence'/'VisionRay_0001').is_dir())
 
     def test_execution_order_keeps_guide_begin_and_done_contiguous(self):
         cases = [{'sheet': 'G02_使用引导', 'id': 'UG_001', 'row': 2},

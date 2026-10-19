@@ -32,11 +32,39 @@ class BleMediaCommands:
             raise AssertionError(f'{resource} 匹配不唯一，停止操作。')
         return found[0] if found else None
 
+    def _permission_screen(self):
+        return any(e.is_displayed() and e.text == 'Permission' for e in self.a.driver.find_elements(
+            'id', self.package + ':id/title_tv'))
+
+    def _enable_media_permissions(self):
+        a = self.a
+        for label in ('Photos', 'Microphone'):
+            xpath = f"//*[@resource-id='{self.package}:id/title' and @text='{label}']/parent::*"
+            def row():
+                matches = [e for e in a.driver.find_elements('xpath', xpath) if e.is_displayed()]
+                if len(matches) > 1:
+                    raise AssertionError(f'Permission 页面 {label} 权限行不唯一，无法完成前置设置。')
+                return matches[0] if matches else None
+            current = a.wait(row, f'{label} 权限行', 10)
+            def enabled():
+                item = row()
+                return item and any(e.is_displayed() and e.text == 'ON' for e in item.find_elements(
+                    'id', self.package + ':id/status_text'))
+            if not enabled():
+                current.click()
+                a.wait(enabled, f'{label} 权限开启', 25)
+                a.log('enable-media-permission', label)
+
     def open(self):
         """进入 我的 → BLE_COMMAND_TEST，必要时上滑一次显示媒体按钮。"""
         a = self.a
         a.ensure_foreground()
-        if a.driver.current_activity != self.ACTIVITY:
+        if self._permission_screen():
+            self._enable_media_permissions()
+            a.driver.press_keycode(4)
+        for attempt in range(2):
+            if a.driver.current_activity == self.ACTIVITY:
+                break
             for _ in range(6):
                 tabs = [e for e in a.driver.find_elements('id', self.package + ':id/tabIcon')
                         if e.is_displayed()]
@@ -48,7 +76,17 @@ class BleMediaCommands:
                 time.sleep(.5)
             else:
                 raise TestBlocked('无法返回底部导航，请先完成首次引导或配对页面。')
-            a.wait(lambda: a.driver.current_activity == self.ACTIVITY, 'BLE_COMMAND_TEST 页面', 15)
+            def command_page():
+                if self._permission_screen():
+                    return 'permission'
+                return 'ready' if a.driver.current_activity == self.ACTIVITY else None
+            destination = a.wait(command_page, 'BLE_COMMAND_TEST 或权限页面', 15)
+            if destination == 'ready':
+                break
+            if attempt:
+                raise AssertionError('已开启 Photos 和 Microphone 权限并重试，但 APP 仍返回 Permission 页面，无法进入 BLE_COMMAND_TEST。')
+            self._enable_media_permissions()
+            a.driver.press_keycode(4)
         if not all(self._find(resource) for resource, _ in self.BUTTONS.values()):
             size = a.driver.get_window_size()
             a.driver.swipe(int(size['width'] * .5), int(size['height'] * .78),
@@ -105,6 +143,8 @@ class BleMediaCommands:
 
     def _read_duration(self, label):
         hints = self._duration_row(label).find_elements('id', self.package + ':id/tv_hint')
+        if not hints:
+            return None  # 尚未选择时长时新版 APP 不创建 tv_hint。
         if len(hints) != 1:
             raise TestBlocked('无法唯一读取当前时长：' + label)
         return self._seconds(hints[0].text)
@@ -117,7 +157,7 @@ class BleMediaCommands:
             raise TestBlocked('请先连接 G1/G3/G6 眼镜，再校验录制时长。')
         HomeDevicePage(self.a).setting(page)
         current = self._read_duration(label)
-        if current >= duration:
+        if current is not None and current >= duration:
             self.a.log('ble-duration', {'kind': kind, 'limit_seconds': current, 'changed': False})
             return
         self._duration_row(label).click()
@@ -133,7 +173,7 @@ class BleMediaCommands:
         self.a.wait(lambda: not any(e.is_displayed() for e in self.a.driver.find_elements(
             'id', self.package + ':id/tv_label')), '时长选项关闭', 10)
         actual = self._read_duration(label)
-        if actual < duration:
+        if actual is None or actual < duration:
             raise TestBlocked(f'时长设置未生效：需要 {duration} 秒，读回 {actual} 秒。')
         self.a.log('ble-duration', {'kind': kind, 'limit_seconds': actual, 'changed': True})
 
@@ -157,6 +197,8 @@ class BleMediaCommands:
             try:
                 self._hold(duration)
             finally:
+                # 长录制后手机可能休眠；唤醒屏幕再按一次停止，避免重复开始录制。
+                self.a.driver.press_keycode(224)
                 self._click('stop_' + kind)
             self.a.log('ble-record-complete', {'kind': kind, 'index': index + 1, 'seconds': duration})
             if index + 1 < count:

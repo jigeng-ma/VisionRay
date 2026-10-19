@@ -1,6 +1,8 @@
 """163 邮箱验证码读取。仅接受本次请求快照之后到达的邮件。"""
 import email
 from email import policy
+from email.utils import parsedate_to_datetime
+from datetime import datetime, timedelta, timezone
 import imaplib
 import json
 import re
@@ -30,12 +32,18 @@ def extract_code(message):
 
 
 class VerificationMailbox:
-    def __init__(self, root):
+    def __init__(self, root, account=None):
         config = json.loads((Path(root) / 'configs' / 'mail_private.json').read_text(encoding='utf-8'))
         self.host = config['imap_host']
         self.port = int(config.get('imap_port', 993))
-        self.account = config['account']
-        self.authorization_code = config['authorization_code']
+        self.account = account or config['account']
+        if self.account == config['account']:
+            self.authorization_code = config['authorization_code']
+        else:
+            alternate = config.get('alternate_accounts', {}).get(self.account)
+            if not alternate:
+                raise ValueError(f'测试账号 {self.account} 没有对应的邮箱授权码')
+            self.authorization_code = alternate['authorization_code']
 
     def _open(self):
         try:
@@ -43,7 +51,7 @@ class VerificationMailbox:
         except OSError as exc:
             raise MailboxUnavailable(f'邮箱 IMAP 服务不可达：{exc}') from exc
         box.login(self.account, self.authorization_code)
-        status, detail = box.xatom('ID', '(\"name\" \"VisionRay\" \"version\" \"1.0\" \"vendor\" \"DPVR QA\" \"support-email\" \"test_zsb@163.com\")')
+        status, detail = box.xatom('ID', f'(\"name\" \"VisionRay\" \"version\" \"1.0\" \"vendor\" \"DPVR QA\" \"support-email\" \"{self.account}\")')
         if status != 'OK':
             box.logout()
             raise RuntimeError('IMAP ID 注册失败：' + b' '.join(detail).decode('utf-8', 'replace'))
@@ -64,6 +72,31 @@ class VerificationMailbox:
     @staticmethod
     def _new_uids(uids, floor):
         return [uid for uid in uids if uid > floor]
+
+    def today_code_count(self):
+        """只读邮件头统计北京时间当天带验证码的邮件，不读取正文。"""
+        china = timezone(timedelta(hours=8))
+        today = datetime.now(china).date()
+        box = self._open()
+        try:
+            status, data = box.uid('search', None, 'SINCE', (today - timedelta(days=1)).strftime('%d-%b-%Y'))
+            if status != 'OK':
+                raise RuntimeError('无法统计当日验证码邮件。')
+            count = 0
+            for uid in data[0].split():
+                status, parts = box.uid('fetch', uid, '(BODY.PEEK[HEADER.FIELDS (DATE SUBJECT)])')
+                if status != 'OK' or not parts or not parts[0]:
+                    continue
+                header = email.message_from_bytes(parts[0][1], policy=policy.default)
+                try:
+                    sent = parsedate_to_datetime(header['Date']).astimezone(china).date()
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if sent == today and CODE.search(str(header.get('Subject', ''))):
+                    count += 1
+            return count
+        finally:
+            box.logout()
 
     def checkpoint(self):
         """在触发发送验证码前调用，返回邮箱 UID 水位线。"""

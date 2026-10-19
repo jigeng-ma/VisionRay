@@ -121,6 +121,7 @@ def test_system_recording_duration(android):
         BleMediaCommands(android).record_audio()
         android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1,
                      '录音后 APP 显示新增待导入媒资', 60)
+    run(android, action)
 
 
 def test_system_restart(android):

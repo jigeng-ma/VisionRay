@@ -45,6 +45,9 @@ class Android:
                 # 启动器会先短暂显示 SplashActivity；它结束前不能开始找业务元素，
                 # 否则部分机型会在初始化后回到桌面而产生“启动成功”的假象。
                 current = [line for line in output.splitlines() if 'mCurrentFocus' in line]
+                if any('NotificationShade' in line for line in current):
+                    adb.shell(phone, 'cmd', 'statusbar', 'collapse')
+                    return False
                 if any(package in line and 'SplashActivity' not in line for line in current):
                     return True
                 # 首次协议由 SplashActivity 承载。普通用例会先由 PopupGuard 同意协议；
@@ -71,7 +74,8 @@ class Android:
                 # 不得使用 SplashActivity 或 activate_app；两者可能在启动初始化后回到桌面。
                 adb.shell(phone, 'monkey', '-p', package, '-c', 'android.intent.category.LAUNCHER', '1')
                 try:
-                    self.wait(focused, 'VisionRay 成为实际前台窗口', 12)
+                    self.wait(lambda: focused() and self.driver.current_package == package,
+                              'VisionRay 成为实际前台窗口并由 Appium 识别', 12)
                     break
                 except WaitTimeout:
                     if attempt == 2:
@@ -116,14 +120,14 @@ class Android:
             raise AssertionError(f'元素 {key} 匹配到 {len(found)} 项，请增加定位范围。')
         return found[0] if found else None
 
-    def wait(self, predicate, label, timeout=10):
+    def wait(self, predicate, label, timeout=10, handle_popups=True):
         from selenium.common.exceptions import StaleElementReferenceException, WebDriverException
         deadline = time.monotonic() + timeout
         handled = 0
         try:
             while time.monotonic() < deadline:
                 try:
-                    if self.popups.handle():
+                    if handle_popups and self.popups.handle():
                         handled += 1
                         if handled > 6:
                             raise TestBlocked('弹窗反复出现，停止当前用例并保留现场。')

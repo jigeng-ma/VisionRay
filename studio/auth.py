@@ -1,6 +1,7 @@
 """G00 英文版账号流程。只允许操作用户指定的可销毁测试账号。"""
 import re
 import json
+import os
 import time
 from pathlib import Path
 
@@ -9,17 +10,56 @@ from .errors import TestBlocked, WaitTimeout
 from .mailbox import VerificationMailbox
 
 ROOT = Path(__file__).resolve().parents[1]
-EMAIL = 'test_zsb@163.com'
-PASSWORD = '1234qwer'
+AUTH_PATH = ROOT / 'configs' / 'auth_private.json'
+AUTH = json.loads(AUTH_PATH.read_text(encoding='utf-8'))
+EMAIL = os.environ.get('VISIONRAY_TEST_ACCOUNT', AUTH['account'])
+KNOWN_ACCOUNTS = {AUTH['account'], *AUTH.get('alternate_accounts', {})}
+if EMAIL not in KNOWN_ACCOUNTS:
+    raise ValueError(f'未配置测试账号：{EMAIL}')
+PASSWORD = (AUTH['password'] if EMAIL == AUTH['account']
+            else AUTH['alternate_accounts'][EMAIL]['password'])
+
+
+def alternate_password(password):
+    return 'NovaQA9!z' if password != 'NovaQA9!z' else 'VisionRay9!z'
+
+
+def save_password(password, account=None):
+    global PASSWORD
+    account = account or EMAIL
+    if account == AUTH['account']:
+        AUTH['password'] = password
+    else:
+        AUTH['alternate_accounts'][account]['password'] = password
+    if account == EMAIL:
+        PASSWORD = password
+    AUTH_PATH.write_text(json.dumps(AUTH, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
 class AuthPage:
-    def __init__(self, android):
+    def __init__(self, android, account=None):
         self.a = android
         self.d = android.driver
         self.package = android.context['config']['package']
-        self.mail = VerificationMailbox(ROOT)
+        self.email = account or EMAIL
+        if self.email not in KNOWN_ACCOUNTS:
+            raise ValueError(f'未配置测试账号：{self.email}')
+        self.mail = VerificationMailbox(ROOT, self.email)
+        self.original_password = (AUTH['password'] if self.email == AUTH['account']
+                                  else AUTH['alternate_accounts'][self.email]['password'])
+        self.password = self.original_password
         self.password_changed = False
+        self.keep_code_page = False
+
+    def installed_variant(self):
+        """读取手机当前安装包，避免把工作台输入的 debug 版本误当作实际安装版本。"""
+        dump = Adb().shell(self.a.context['phone'], 'dumpsys', 'package', self.package)
+        version = re.search(r'\bversionName=([^\s]+)', dump)
+        if version and version.group(1).lower().endswith('-debug'):
+            return 'debug'
+        if re.search(r'\b(?:pkgFlags|flags)=\[[^\]]*\bDEBUGGABLE\b', dump):
+            return 'debug'
+        return 'release' if version else 'unknown'
 
     def all(self, resource):
         return [e for e in self.d.find_elements('id', self.package + ':id/' + resource) if e.is_displayed()]
@@ -82,9 +122,13 @@ class AuthPage:
         self.d.execute_script('mobile: clickGesture', {'x': x, 'y': y})
 
     def assert_page_title(self, title):
-        self.a.wait(lambda: any(e.is_displayed() and title.lower() in e.text.lower()
-                                for e in self.d.find_elements('xpath', f'//*[@package="{self.package}" and @text]')),
-                    title + ' 页面标题', 20)
+        def visible_privacy_page():
+            # 协议页由系统浏览器承载时，不属于 App package；页面地址仍可作为加载成功信号。
+            return any(e.is_displayed() and (
+                title.lower() in e.text.lower() or 'rs.dpaiglasses.com' in e.text.lower()
+            ) for e in self.d.find_elements('xpath', '//*[@text]'))
+
+        self.a.wait(visible_privacy_page, title + ' 页面标题', 20)
 
     def no_new_mail(self, checkpoint):
         time.sleep(3)
@@ -112,6 +156,8 @@ class AuthPage:
 
     def home(self):
         self.a.ensure_foreground()
+        from .firmware_ota import leave_failed_update
+        leave_failed_update(self.a)
         self.leave_pending_guide()
         self.a.wait(lambda: any(self.has(k) for k in ('tabIcon', 'tv_login_by_email',
             'back_iv', 'tv_cancel')), '账号流程页面加载完成', 25)
@@ -137,15 +183,15 @@ class AuthPage:
     def account(self):
         self.home()
         hint = self.el('hint').text
-        if hint != EMAIL:
+        if hint != self.email:
             raise TestBlocked(f'当前账号不是指定测试邮箱：{hint}；不操作其他账号。')
         self.text('Account').click()
-        assert self.el('tv_email').text == EMAIL
+        assert self.el('tv_email').text == self.email
 
     def entry(self):
         self.home()
         hint = self.el('hint').text
-        if hint == EMAIL:
+        if hint in KNOWN_ACCOUNTS:
             self.text('Account').click()
             self.click('tv_logout')
             # 退出确认框左右按钮的 resource-id 与语义相反，必须同时核对文案。
@@ -163,10 +209,11 @@ class AuthPage:
         self.text('Log in Your Account')
         self.hide_keyboard()
 
-    def login_result(self, password=PASSWORD):
+    def login_result(self, password=None):
         """探测服务端账号状态，不把未注册或密码错误误记为导航超时。"""
+        password = self.password if password is None else password
         self.login_page()
-        self.fill('et_email', EMAIL)
+        self.fill('et_email', self.email)
         self.fill('et_pwd', password)
         self.click('tv_login_btn')
         def result():
@@ -178,41 +225,44 @@ class AuthPage:
             return None
         return self.a.wait(result, '登录成功或明确账号状态', 25)
 
-    def login(self, password=PASSWORD):
+    def login(self, password=None):
+        password = self.password if password is None else password
         result = self.login_result(password)
         assert result == 'logged_in', f'登录未成功：{result}'
         self.home()
-        assert self.el('hint').text == EMAIL
+        assert self.el('hint').text == self.email
 
     def registered(self, verify_password=False):
         self.home()
         hint = self.el('hint').text
-        if hint not in (EMAIL, 'Not logged in'):
+        if hint not in (*KNOWN_ACCOUNTS, 'Not logged in'):
             raise TestBlocked('当前账号不是指定测试邮箱，不恢复其密码。')
-        if hint == 'Not logged in' or verify_password:
+        if hint != self.email or verify_password:
             result = self.login_result()
             self.a.log('auth-precondition', {'required': 'registered', 'observed': result})
             if result == 'unregistered':
                 self.register()
             elif result == 'wrong_password':
-                self.reset(PASSWORD)
+                self.reset(self.password)
                 self.login()
                 self.password_changed = False
         else:
-            assert self.el('hint').text == EMAIL, '只允许指定测试账号'
+            assert self.el('hint').text == self.email, '只允许指定测试账号'
         self.home()
-        assert self.el('hint').text == EMAIL, '准备后未登录指定测试账号'
+        assert self.el('hint').text == self.email, '准备后未登录指定测试账号'
 
-    def unregistered(self):
+    def unregistered(self, allow_delete=True):
         self.home()
-        if self.el('hint').text not in (EMAIL, 'Not logged in'):
+        if self.el('hint').text not in (*KNOWN_ACCOUNTS, 'Not logged in'):
             raise TestBlocked('当前账号不是指定测试邮箱，不改变账号状态。')
         # 本地登录提示可能过期；用服务端结果决定是否还需要注销。
         result = self.login_result()
         self.a.log('auth-precondition', {'required': 'unregistered', 'observed': result})
         if result != 'unregistered':
+            if not allow_delete:
+                raise TestBlocked('测试账号仍已注册；本用例限制只发一封验证码，前置条件不自动注销。')
             if result == 'wrong_password':
-                self.reset(PASSWORD)
+                self.reset(self.password)
                 self.login()
                 self.password_changed = False
             self.delete()
@@ -220,8 +270,8 @@ class AuthPage:
     def prepare(self, number):
         self.a.log('auth-prepare', f'AUTH_{number:03d}')
         # 页面检查不依赖服务端账号；不能为检查空输入而强制登录或注册。
-        neutral = {1, 3, 4, 6, 11, 22, 23, 50, 51, 52, 57}
-        absent = {15, 16, 17, 24, 28, 29, 30, 31, 32, 33, 34, 37, 38, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 55, 56}
+        neutral = {1, 3, 4, 5, 6, 11, 22, 23, 50, 51, 52, 57}
+        absent = {15, 16, 17, 24, 28, 29, 30, 31, 32, 33, 34, 37, 38, 41, 42, 43, 44, 45, 46, 47, 48, 49, 55, 56}
         try:
             if number in absent:
                 self.unregistered()
@@ -275,56 +325,45 @@ class AuthPage:
         return messages[-1] if messages else ''
 
     def request_code(self, trigger):
-        """进入验证码页后才读邮件；限流有界重试，日配额耗尽明确阻塞。"""
-        for attempt in range(3):
-            since = float(Adb().shell(self.a.context['phone'], 'date', '+%s'))
-            trigger()
-            try:
-                self.a.wait(lambda: self.has('et_code1') or self.has('tvDesc'), '发送验证码页面响应', 8)
-            except WaitTimeout:
-                message = self.request_failure(since)
-            else:
-                if self.has('et_code1'):
-                    return
-                message = self.el('tvDesc').text
-            frequent = '频繁' in message or 'frequent' in message.lower()
-            if frequent and attempt < 2:
-                self.a.log('auth-rate-limit', {'message': message, 'retry_after_seconds': 65})
-                if self.has('tvDesc'):
-                    self.d.back()
-                time.sleep(65)
-                continue
-            raise TestBlocked('发送验证码被拒绝：' + (message or '未取得可确认的发送结果'))
+        """每个测试动作只允许一次发码，避免自动重试耗尽日配额。"""
+        used = self.mail.today_code_count()
+        if used >= 50:
+            raise TestBlocked(f'{self.mail.account} 今日已接收 {used} 条验证码，达到每天 50 条上限。')
+        since = float(Adb().shell(self.a.context['phone'], 'date', '+%s'))
+        trigger()
+        try:
+            self.a.wait(lambda: self.has('et_code1') or self.has('tvDesc'), '发送验证码页面响应', 8)
+        except WaitTimeout:
+            message = self.request_failure(since)
+        else:
+            if self.has('et_code1'):
+                return
+            message = self.el('tvDesc').text
+        raise TestBlocked('发送验证码被拒绝：' + (message or '未取得可确认的发送结果'))
 
     def code_page(self, mode):
         self.email_page(mode)
-        self.fill('et_email', EMAIL)
+        self.fill('et_email', self.email)
         code = self.new_code(lambda: self.request_code(lambda: self.click('tv_email_next')))
         self.text('Enter your verification code')
-        assert EMAIL in self.el('tv_summary').text
+        assert self.email in self.el('tv_summary').text
         for i in range(1, 7):
             self.el(f'et_code{i}')
         return code
 
     def resend_code(self):
         def trigger():
+            used = self.mail.today_code_count()
+            if used >= 50:
+                raise TestBlocked(f'{self.mail.account} 今日已接收 {used} 条验证码，达到每天 50 条上限。')
             since = float(Adb().shell(self.a.context['phone'], 'date', '+%s'))
             self.click('tv_resend_captcha')
             self.settle()
             message = self.request_failure(since)
             if message:
                 raise TestBlocked('重发验证码被拒绝：' + message)
-        for attempt in range(3):
-            self.a.wait(lambda: self.el('tv_resend_captcha').is_enabled(), '允许重新发送', 75)
-            try:
-                return self.new_code(trigger)
-            except TestBlocked as exc:
-                message = str(exc)
-                if ('频繁' in message or 'frequent' in message.lower()) and attempt < 2:
-                    self.a.log('auth-rate-limit', {'message': message, 'retry_after_seconds': 65})
-                    time.sleep(65)
-                    continue
-                raise
+        self.a.wait(lambda: self.el('tv_resend_captcha').is_enabled(), '允许重新发送', 75)
+        return self.new_code(trigger)
 
     def enter_code(self, code):
         for i in range(6, 0, -1):
@@ -358,7 +397,7 @@ class AuthPage:
     def delete_code(self):
         code = self.new_code(self.start_delete_code)
         self.text('ID Verification')
-        assert EMAIL in self.el('tv_summary').text
+        assert self.email in self.el('tv_summary').text
         return code
 
     def delete(self):
@@ -369,46 +408,56 @@ class AuthPage:
         self.home()
         assert self.el('hint').text == 'Not logged in'
 
-    def register(self, password=PASSWORD):
+    def register(self, password=None):
+        password = self.password if password is None else password
         self.password_page('register')
         self.complete_registration(password)
 
-    def complete_registration(self, password=PASSWORD):
+    def complete_registration(self, password=None):
         """当前已在 Create password 页时提交注册，避免重复发送验证码。"""
+        password = self.password if password is None else password
         self.fill('et_pwd', password)
         self.click('tv_pwd_ok')
         self.a.wait(lambda: self.has('tabIcon'), '注册后自动登录', 25)
         self.home()
-        assert self.el('hint').text == EMAIL
-        self.password_changed = password != PASSWORD
+        assert self.el('hint').text == self.email
+        self.password = password
+        save_password(password, self.email)
+        self.password_changed = password != self.original_password
 
     def reset(self, password):
         self.password_page('reset')
+        self.complete_password_reset(password)
+
+    def complete_password_reset(self, password):
+        """在现有 Create new password 页提交密码，不再次请求验证码。"""
         self.fill('et_pwd', password)
-        self.password_changed = True
         self.click('tv_pwd_ok')
         self.text('Log in Your Account')
+        self.password = password
+        save_password(password, self.email)
+        self.password_changed = password != self.original_password
 
     def restore(self):
         if self.password_changed:
-            self.reset(PASSWORD)
-            self.login()
+            self.reset(self.original_password)
+            self.login(self.original_password)
             self.password_changed = False
         # 注册/注销页检查允许保留未注册状态，下一条从真实状态准备。
         # 避免每条重复注销+注册耗尽邮箱配额，也不让无关 UI 用例因强制登录报错。
         self.home()
 
     def eye(self, rounds):
-        self.fill('et_pwd', PASSWORD)
+        self.fill('et_pwd', self.password)
         assert self.el('et_pwd').get_attribute('password') == 'true'
         for _ in range(rounds):
             self.click('iv_hide_pwd')
             assert self.el('et_pwd').get_attribute('password') == 'false'
-            assert self.value('et_pwd') == PASSWORD
+            assert self.value('et_pwd') == self.password
             self.click('iv_hide_pwd')
             assert self.el('et_pwd').get_attribute('password') == 'true'
         self.click('iv_hide_pwd')
-        assert self.value('et_pwd') == PASSWORD
+        assert self.value('et_pwd') == self.password
         self.click('iv_hide_pwd')
 
     def unchanged(self, marker):
@@ -418,7 +467,7 @@ class AuthPage:
 
     def wrong_login(self):
         self.login_page()
-        self.fill('et_email', EMAIL)
+        self.fill('et_email', self.email)
         self.fill('et_pwd', 'wrong123')
         self.click('tv_login_btn')
         self.text('Login Failed')
@@ -427,9 +476,9 @@ class AuthPage:
     def unregistered_login(self, mode='login'):
         # 调用前由 prepare 校验未注册；此处执行被测登录/找回动作。
         self.login_page() if mode == 'login' else self.email_page('reset')
-        self.fill('et_email', EMAIL)
+        self.fill('et_email', self.email)
         if mode == 'login':
-            self.fill('et_pwd', PASSWORD)
+            self.fill('et_pwd', self.password)
         self.click('tv_login_btn' if mode == 'login' else 'tv_email_next')
         self.text('Not registered')
 
@@ -438,4 +487,4 @@ class AuthPage:
         self.a.ensure_foreground()
         self.a.wait(lambda: self.has('tabIcon'), '重启后主页', 25)
         self.home()
-        assert self.el('hint').text == EMAIL
+        assert self.el('hint').text == self.email

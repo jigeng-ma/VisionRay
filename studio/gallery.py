@@ -132,7 +132,8 @@ class GalleryPage:
 
     def assert_pending_counts(self, expected):
         """首页与空间页展示的待导入数量必须一致且等于 expected。"""
-        home = self.pending_count_on('home')
+        home = self.pending_count_or_zero('home')
+        assert home == expected, f'首页待导入媒资数量不符：期望 {expected}，实际 {home}；请检查拍摄同步或重启后通知恢复。'
         self.open()
         if not self.import_card():
             # 已确认首页通知存在时，Gallery 缺少卡片是 APP 检查失败，不能写成

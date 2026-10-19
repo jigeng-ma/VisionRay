@@ -63,3 +63,8 @@ class Adb:
             (folder / 'phone.png').write_bytes(self.run('-s', serial, 'exec-out', 'screencap', '-p', binary=True))
         except Exception as exc:
             (folder / 'capture-error.txt').write_text(str(exc), encoding='utf-8')
+        try:
+            log = self.run('-s', serial, 'logcat', '-d', '-v', 'threadtime', '-t', '12000')
+            (folder / 'phone-logcat.txt').write_text(log + '\n', encoding='utf-8')
+        except Exception as exc:
+            (folder / 'logcat-error.txt').write_text(str(exc), encoding='utf-8')

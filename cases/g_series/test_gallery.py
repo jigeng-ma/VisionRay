@@ -83,7 +83,8 @@ def prepare_new_imported_media(gallery, kind, duration=15):
     else:
         command.record_video(duration=duration)
     gallery.a.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1,
-                   '生成下载验证所需新媒资', 120 if kind == 'video' else 60)
+                   f'BLE {"录像" if kind == "video" else "拍照"}后首页待导入媒资从 {before} 增至 {before + 1}',
+                   120 if kind == 'video' else 60)
     gallery.import_from('home')
     gallery.preview_latest(kind)
 

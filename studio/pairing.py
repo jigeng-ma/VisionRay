@@ -3,6 +3,10 @@ import time
 from .errors import TestBlocked, WaitTimeout
 
 
+class BindingReturnedToModels(AssertionError):
+    pass
+
+
 class PairingPage:
     def __init__(self, android):
         self.a = android
@@ -14,6 +18,19 @@ class PairingPage:
         package = a.context['config']['package']
         # 隐藏入口是开关；先检查，避免下一条配对用例把已显示的型号再次隐藏。
         a.click('pair.add')
+        destination = a.wait(lambda: 'models' if a.find('pair.models_title') else
+                             ('login' if any(e.is_displayed() for e in a.driver.find_elements(
+                                 'id', package + ':id/tv_login_by_email')) else None),
+                             '型号列表或登录入口', 12)
+        if destination == 'login':
+            # 全新安装或清除数据后，Add Device 会先转到登录页。
+            from .auth import AuthPage
+            AuthPage(a).registered()
+            tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+            if not tabs:
+                raise TestBlocked('登录后未找到首页导航，无法返回 Add Device。')
+            tabs[0].click()
+            a.click('pair.add')
         a.element('pair.models_title', 12)
         names = {e.text for e in a.driver.find_elements('id', self.options['model_label_id']) if e.is_displayed()}
         a.driver.press_keycode(4)
@@ -108,6 +125,9 @@ class PairingPage:
             from .home_device import HomeDevicePage
             HomeDevicePage(a).unbind()
             a.wait(lambda: a.find('pair.add'), '自动解绑后显示 Add Device 首页', 20)
+            # APP 在刚解绑后立即重绑会显示“Please wait a minute and retry”。
+            a.log('pair-cooldown', '解绑后等待 60 秒再搜索')
+            time.sleep(60)
         a.capture('unbound-home')
         self.enable_g_series_models()
         a.click('pair.add')
@@ -121,6 +141,7 @@ class PairingPage:
     def bind(self):
         a = self.a
         name = a.context['glasses_name']
+        pairing_prompts_before = a.popups.pairing_accepted
         def target():
             found = [e for e in a.driver.find_elements('id', self.options['device_name_id'])
                      if e.is_displayed() and e.text == name]
@@ -134,22 +155,58 @@ class PairingPage:
             # 截图可能引起列表刷新，点击前再次通过名称定位。
             a.wait(target, '重新定位目标眼镜', 5).click()
             a.log('bind', name)
-            self.finish_binding()
+            try:
+                self.finish_binding(pairing_prompts_before)
+            except AssertionError:
+                if not a.find('pair.binding_failed'):
+                    raise
+                # APP 明确要求等待一分钟再试；只按其提示重试一次，仍失败则保留失败。
+                a.log('pair-retry', 'Binding Failed 后等待 70 秒')
+                time.sleep(70)
+                retry = [e for e in a.driver.find_elements('id', a.context['config']['package'] + ':id/btn_primary')
+                         if e.is_displayed() and e.text == 'Retry']
+                if len(retry) != 1:
+                    raise AssertionError('Binding Failed 弹窗缺少唯一 Retry 按钮。')
+                retry[0].click()
+                next_step = a.wait(lambda: target() or self.on_tutorial() or self.on_target_home(),
+                                   '重试后搜索或绑定目标眼镜 ' + name, self.options['search_timeout'])
+                if next_step is not True:
+                    next_step.click()
+                self.finish_binding(pairing_prompts_before)
             a.log('bluetooth-prompt-count', a.popups.pairing_accepted)
         finally:
             a.popups.pairing_active = False
 
 
-    def finish_binding(self):
+    def finish_binding(self, pairing_prompts_before=0):
         a = self.a
-        a.wait(lambda: self.on_tutorial() or (self.options.get('skip_tutorial') and self.on_target_home()),
+        def binding_result():
+            if a.find('pair.binding_failed'):
+                a.capture('binding-failed')
+                raise AssertionError('APP 提示 Binding Failed：Please wait a minute and retry。刚解绑后设备可能尚未就绪。')
+            return self.on_tutorial() or (self.options.get('skip_tutorial') and self.on_target_home())
+        a.wait(binding_result,
                '绑定后进入使用引导或所选跳过路径的首页', self.options['bind_timeout'])
         a.capture('binding-page-observed')
         if self.options.get('skip_tutorial') and self.on_tutorial():
+            # 旧版 APP 可能先显示引导页，数秒后才弹 Android 蓝牙配对框。
+            # 先处理配对框，再点 Skip，避免确认框打断跳过流程并退回型号页。
+            started = time.monotonic()
+            grace = 5 if not self.options.get('require_pairing_prompt', True) else self.options['late_popup_timeout']
+            def pairing_settled():
+                if a.find('pair.models_title'):
+                    raise BindingReturnedToModels('蓝牙配对确认期间返回型号选择页，目标眼镜绑定未完成。')
+                return (a.popups.pairing_accepted > pairing_prompts_before
+                        or time.monotonic() - started >= grace)
+            a.wait(pairing_settled, '引导页蓝牙配对确认或等待已配对设备', grace + 1)
             a.click('pair.skip')
             a.element('pair.skip_title')
             a.click('pair.skip_confirm')
-            a.wait(self.on_target_home, '跳过引导后显示目标眼镜首页', 15)
+            def bound_home():
+                if a.find('pair.models_title'):
+                    raise BindingReturnedToModels('跳过引导后返回型号选择页，目标眼镜绑定未完成。')
+                return self.on_target_home()
+            a.wait(bound_home, '跳过引导后显示目标眼镜首页', 15)
         self.observe_late_pairing()
         a.capture('binding-success')
 
@@ -170,8 +227,19 @@ class PairingPage:
         a = self.a
         started = time.monotonic()
         required = self.options.get('require_pairing_prompt', True)
+        late_tutorial_skipped = False
         a.log('observe-late-pairing', {'required': required, 'timeout': self.options['late_popup_timeout']})
         def complete():
+            nonlocal late_tutorial_skipped
+            if self.options.get('skip_tutorial') and self.on_tutorial():
+                # 系统蓝牙确认可能让 APP 重新显示引导；按本轮配置再次跳过。
+                if not late_tutorial_skipped:
+                    a.click('pair.skip')
+                    a.element('pair.skip_title')
+                    a.click('pair.skip_confirm')
+                    late_tutorial_skipped = True
+                    a.log('skip-late-tutorial', 'after-bluetooth-pairing')
+                return False
             on_tutorial = self.on_target_home() if self.options.get('skip_tutorial') else self.on_tutorial()
             elapsed = time.monotonic() - started
             if a.popups.pairing_accepted:

@@ -15,6 +15,8 @@ class HomeDevicePage:
 
     def home(self):
         self.a.ensure_foreground()
+        from .firmware_ota import leave_failed_update
+        leave_failed_update(self.a)
         # 每条业务用例都从已绑定首页开始。引导、型号页、Add Device 页面是前序
         # 用例正常留下的状态，统一在这里恢复，避免把前置状态误报成业务失败。
         for _ in range(6):
@@ -28,11 +30,15 @@ class HomeDevicePage:
                 from .pairing import PairingPage
                 pairing = PairingPage(self.a)
                 original = pairing.options.get('skip_tutorial', False)
+                original_prompt = pairing.options.get('require_pairing_prompt', True)
                 try:
                     pairing.options['skip_tutorial'] = True
+                    # 恢复既有绑定时系统可能不再弹出蓝牙配对确认。
+                    pairing.options['require_pairing_prompt'] = False
                     pairing.run()
                 finally:
                     pairing.options['skip_tutorial'] = original
+                    pairing.options['require_pairing_prompt'] = original_prompt
             elif self.a.find('pair.home_title'):
                 break
             else:
@@ -57,9 +63,15 @@ class HomeDevicePage:
 
     def setting(self, label):
         self.home()
-        # 当前首页入口文案为 System Settings；不要把它缩写成 System，
-        # 否则会在新 UI 上找不到该项。
-        self._labeled('tv_list_title', label).click()
+        # 不同 APP 版本首页显示 System 或 System Settings，详情页仍叫 System Settings。
+        if label == 'System Settings':
+            items = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_list_title')
+                     if e.is_displayed() and e.text in ('System', 'System Settings')]
+            if len(items) != 1:
+                raise AssertionError(f'未唯一找到系统设置入口：{len(items)} 项。')
+            items[0].click()
+        else:
+            self._labeled('tv_list_title', label).click()
         self.a.log('click-setting', label)
 
     def assert_page(self, title, marker):

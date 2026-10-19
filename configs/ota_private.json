@@ -1,0 +1,6 @@
+{
+  "base_url": "https://test.dpvr.com",
+  "email": "test@dpvr.com",
+  "password": "1234567890test",
+  "ota_path": "/otas"
+}

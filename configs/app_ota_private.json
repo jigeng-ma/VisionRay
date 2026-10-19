@@ -1,0 +1,7 @@
+{
+  "base_url": "https://test.dpvr.com",
+  "email": "test@dpvr.com",
+  "password": "1234567890test",
+  "ota_path": "/apps",
+  "list_component": "versions.app-version-list"
+}

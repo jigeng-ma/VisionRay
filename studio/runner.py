@@ -169,11 +169,13 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
     emit('run', {'folder': str(folder), 'total': len(plan)})
     fatal = None
     appium_ready = False
+    active_case = None
     try:
         for index, case in enumerate(plan):
             if stop.is_set():
                 break
             key = (case['sheet'], case['id'])
+            active_case = case
             item = entries.get(key)
             start = time.monotonic()
             status, detail = 'NOT_IMPLEMENTED', '此编号尚未关联自动化实现。'
@@ -206,9 +208,12 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                     connection.execute('UPDATE results SET status=? WHERE sheet=? AND id=?', ('RUNNING', *key))
                     connection.commit()
                     emit('case_start', case)
-                    case_dir = folder / 'evidence' / f'{index + 1:05d}'
+                    case_dir = folder / 'evidence' / (item.get('automation_id') or case['id'])
                     case_dir.mkdir(parents=True)
                     env = os.environ.copy()
+                    env.pop('VISIONRAY_TEST_ACCOUNT', None)
+                    if item.get('auth_account'):
+                        env['VISIONRAY_TEST_ACCOUNT'] = item['auth_account']
                     env.update(GLASSES_RUN_CONTEXT=str(folder / 'context.json'), PYTHONIOENCODING='utf-8',
                                GLASSES_EVIDENCE_DIR=str(case_dir),
                                PYTEST_DISABLE_PLUGIN_AUTOLOAD='1', PYTHONPATH=os.pathsep.join([str(root), str(root / 'vendor')]))
@@ -257,7 +262,12 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                 break
     except Exception as exc:
         fatal = str(exc)
-        connection.execute("UPDATE results SET status='ERROR',detail=? WHERE status='RUNNING'", (fatal,))
+        updated = connection.execute("UPDATE results SET status='ERROR',detail=? WHERE status='RUNNING'", (fatal,)).rowcount
+        if not updated and active_case:
+            updated = connection.execute("UPDATE results SET status='ERROR',detail=? WHERE sheet=? AND id=? AND status='NOT_RUN'",
+                                        (fatal, active_case['sheet'], active_case['id'])).rowcount
+            if updated:
+                emit('case', dict(active_case, status='ERROR', detail=fatal, duration=0))
         connection.commit()
     finally:
         records = [dict(r) for r in connection.execute('SELECT * FROM results')]

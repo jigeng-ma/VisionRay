@@ -26,6 +26,12 @@ def summarize_selected(summary, selected):
     return counts
 
 
+def brief_detail(detail, limit=180):
+    """状态栏显示一行可读原因；完整原文仍写入下方日志和结果文件。"""
+    text = ' '.join(str(detail).split())
+    return text if len(text) <= limit else text[:limit - 1] + '…'
+
+
 class App(tk.Tk):
     def __init__(self, root):
         super().__init__()
@@ -33,14 +39,17 @@ class App(tk.Tk):
         self.state_file = self.root_dir / 'configs' / 'workbench_state.json'
         self.saved_state = self.load_state()
         self.title('AI 眼镜测试工作台')
-        self.geometry('1180x780')
-        self.minsize(980, 680)
+        width = min(1180, self.winfo_screenwidth() - 80)
+        height = min(780, self.winfo_screenheight() - 120)
+        self.geometry(f'{width}x{height}+20+20')
+        self.minsize(min(640, width), min(400, height))
         self.configure(bg='#f4f7fb')
         self.events = queue.Queue()
         self.stop_event = threading.Event()
         self.busy = False
         self.modules = {}
         self.selected = set()
+        self.failure_details = {}
         self.devices_by_label = {}
         self.current_folder = None
         self.total = self.completed = self.passed = self.failed = 0
@@ -108,11 +117,27 @@ class App(tk.Tk):
         style.configure('Accent.TButton', background='#2463eb', foreground='white')
         style.configure('Treeview', rowheight=29, font=('Microsoft YaHei UI', 10))
         style.configure('Treeview.Heading', font=('Microsoft YaHei UI', 10, 'bold'), padding=5)
-        top = tk.Frame(self, bg='#162b49', padx=20, pady=10)
+        viewport = ttk.Frame(self)
+        viewport.pack(fill='both', expand=True)
+        viewport.rowconfigure(0, weight=1)
+        viewport.columnconfigure(0, weight=1)
+        self.canvas = tk.Canvas(viewport, highlightthickness=0, bg='#f4f7fb')
+        self.canvas.grid(row=0, column=0, sticky='nsew')
+        vertical = ttk.Scrollbar(viewport, orient='vertical', command=self.canvas.yview)
+        vertical.grid(row=0, column=1, sticky='ns')
+        horizontal = ttk.Scrollbar(viewport, orient='horizontal', command=self.canvas.xview)
+        horizontal.grid(row=1, column=0, sticky='ew')
+        self.canvas.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        self.content = ttk.Frame(self.canvas)
+        self.content_window = self.canvas.create_window(0, 0, window=self.content, anchor='nw')
+        self.canvas.bind('<Configure>', self.resize_content)
+        self.content.bind('<Configure>', self.resize_content)
+        self.bind('<MouseWheel>', self.scroll_page, add='+')
+        top = tk.Frame(self.content, bg='#162b49', padx=20, pady=10)
         top.pack(fill='x')
         tk.Label(top, text='AI 眼镜测试工作台', bg='#162b49', fg='white', font=('Microsoft YaHei UI', 18, 'bold')).pack(anchor='w')
         tk.Label(top, text='ANDROID  /  单组设备  /  按 Excel 模块执行', bg='#162b49', fg='#bed0e8', font=('Microsoft YaHei UI', 10)).pack(anchor='w', pady=(4, 0))
-        body = ttk.Frame(self, padding=(14, 10))
+        body = ttk.Frame(self.content, padding=(14, 10))
         body.pack(fill='both', expand=True)
         files = ttk.LabelFrame(body, text='1  选择用例文件', padding=8)
         files.pack(fill='x')
@@ -201,6 +226,24 @@ class App(tk.Tk):
         ttk.Label(body, textvariable=self.status, wraplength=1120).pack(anchor='w')
         self.log = tk.Text(body, height=2, font=('Microsoft YaHei UI', 9), bg='#f8fafc', relief='flat', state='disabled')
         self.log.pack(fill='x', pady=(3, 0))
+
+    def resize_content(self, event=None):
+        # Keep the form's requested size so pack never hides the bottom controls.
+        self.canvas.itemconfigure(
+            self.content_window,
+            width=max(self.canvas.winfo_width(), self.content.winfo_reqwidth()),
+            height=max(self.canvas.winfo_height(), self.content.winfo_reqheight()),
+        )
+        self.canvas.configure(scrollregion=self.canvas.bbox(self.content_window))
+
+    def scroll_page(self, event):
+        # Let tables, logs and drop-downs retain their own wheel behavior.
+        if event.widget.winfo_class() in ('Treeview', 'Text', 'TCombobox'):
+            return
+        if event.delta:
+            steps = -int(event.delta / 120) or (-1 if event.delta > 0 else 1)
+            self.canvas.yview_scroll(steps, 'units')
+            return 'break'
 
     def button(self, parent, text, command, **kwargs):
         b = ttk.Button(parent, text=text, command=command, **kwargs)
@@ -484,6 +527,7 @@ class App(tk.Tk):
                 elif kind == 'run':
                     self.current_folder = value['folder']
                     self.total = value['total']
+                    self.failure_details = {}
                     self.progress['maximum'] = max(1, self.total)
                     self.refresh_run_stats()
                     self.write_log('开始轮次：' + Path(self.current_folder).name)
@@ -507,10 +551,15 @@ class App(tk.Tk):
                         self.interrupted += 1
                     self.refresh_run_stats()
                     self.progress['value'] = self.completed
-                    self.status.set(f'{self.completed}/{self.total}  {value["sheet"]} / {value["id"]}：{LABELS[value["status"]]}')
+                    reason = brief_detail(value['detail'])
+                    if value['status'] in ('FAIL', 'ERROR', 'BLOCKED'):
+                        self.failure_details.setdefault(value['sheet'], f'{value["id"]} · {LABELS[value["status"]]}：{reason}')
+                    self.status.set(f'{self.completed}/{self.total}  {value["sheet"]} / {value["id"]}：{LABELS[value["status"]]} — {reason}')
+                    if value['status'] != 'PASS':
+                        self.write_log(f'{value["sheet"]} / {value["id"]} · {LABELS[value["status"]]}：{value["detail"]}')
                     for row in self.tree.get_children():
                         if self.tree.set(row, 'module') == value['sheet']:
-                            self.tree.set(row, 'progress', f'{value["id"]} · {LABELS[value["status"]]}')
+                            self.tree.set(row, 'progress', f'{value["id"]} · {LABELS[value["status"]]}：{reason}')
                 elif kind == 'exporting':
                     self.stop_button.configure(state='disabled')
                     self.status.set('正在生成独立 Excel 结果文件并校验完整性…')
@@ -530,9 +579,12 @@ class App(tk.Tk):
                     self.refresh_run_stats()
                     for row in self.tree.get_children():
                         name = self.tree.set(row, 'module')
-                        self.tree.set(row, 'progress', ' / '.join(f'{LABELS[k]} {v}' for k, v in value['summary'].get(name, {}).items()))
+                        progress = ' / '.join(f'{LABELS[k]} {v}' for k, v in value['summary'].get(name, {}).items())
+                        if name in self.failure_details:
+                            progress += ' · ' + self.failure_details[name]
+                        self.tree.set(row, 'progress', progress)
                     m = value['manifest']
-                    result = '已停止' if m['state'] == 'INTERRUPTED' else '执行异常' if m['state'] == 'ERROR' else '本轮结束'
+                    result = '已停止' if m['state'] == 'INTERRUPTED' else ('执行异常：' + brief_detail(m.get('error', '未知错误')) if m['state'] == 'ERROR' else '本轮结束')
                     text = result + '。' + ('Excel 已生成。' if m['export'] == 'SUCCESS' else 'Excel 导出失败，可重新导出：' + m.get('export_error', ''))
                     self.status.set(text)
                     self.write_log(text + '  ' + self.current_folder)

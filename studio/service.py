@@ -31,15 +31,21 @@ def start(root):
     if config.get('java_home'):
         env['JAVA_HOME'] = config['java_home']
     (root/'runs').mkdir(exist_ok=True)
-    with (root/'runs/appium-service.log').open('a', encoding='utf-8') as log:
+    log_path = root / 'runs/appium-service.log'
+    with log_path.open('a', encoding='utf-8') as log:
         process = subprocess.Popen([command, '--address', '127.0.0.1', '--port', '4723', '--log-no-colors'],
             env=env, cwd=root, stdout=log, stderr=subprocess.STDOUT,
             creationflags=0x08000000 if os.name == 'nt' else 0)
-    deadline = time.monotonic() + 45
+    deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         if status():
             return 'Appium 已就绪（127.0.0.1:4723）。'
         if process.poll() is not None:
             break
         time.sleep(.5)
-    raise RuntimeError('Appium 未就绪，请查看 runs/appium-service.log。')
+    state = f'进程已退出（退出码 {process.returncode}）' if process.poll() is not None else '等待 90 秒仍未就绪'
+    try:
+        tail = [line.strip() for line in log_path.read_text(encoding='utf-8', errors='replace').splitlines() if line.strip()][-3:]
+    except OSError:
+        tail = []
+    raise RuntimeError('Appium 未就绪：' + state + ('；服务输出：' + ' | '.join(tail) if tail else '') + '。')

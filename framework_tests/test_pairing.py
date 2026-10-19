@@ -7,12 +7,25 @@ from xml.sax.saxutils import quoteattr
 from studio.popups import PopupGuard, contains_device
 from studio.errors import TestBlocked
 from studio.config import resolve
-from studio.pairing import PairingPage
+from studio.pairing import BindingReturnedToModels, PairingPage
+from studio.home_device import HomeDevicePage
 from studio.android import Android
 import framework_tests.test_core as core
 fixture=core.fixture
 
 ROOT = Path(__file__).resolve().parents[1]
+
+class HomeSettingTests(unittest.TestCase):
+    def test_system_entry_accepts_both_home_labels(self):
+        for label in ('System', 'System Settings'):
+            a = Mock(context={'config': {'package': 'app'}, 'glasses_name': 'G3'})
+            entry = Mock(text=label)
+            entry.is_displayed.return_value = True
+            a.driver.find_elements.return_value = [entry]
+            page = HomeDevicePage(a)
+            page.home = Mock()
+            page.setting('System Settings')
+            entry.click.assert_called_once_with()
 
 def xml(package, texts):
     return '<hierarchy>'+''.join('<node package='+quoteattr(package)+' text='+quoteattr(t)+'/>' for t in texts)+'</hierarchy>'
@@ -57,6 +70,14 @@ class PopupTests(unittest.TestCase):
         self.assertTrue(self.guard.handle())
         self.a.driver.find_elements.assert_called_once()
 
+    def test_firmware_full_page_with_back_button_is_not_treated_as_cancelable_popup(self):
+        pkg = self.a.context['config']['package']
+        self.a.driver.page_source = (f'<hierarchy><node package="{pkg}" text="Firmware Update"/>'
+                                     f'<node package="{pkg}" text="Update Now"/>'
+                                     f'<node package="{pkg}" resource-id="{pkg}:id/top_bar_back"/></hierarchy>')
+        self.assertFalse(self.guard.handle())
+        self.button.click.assert_not_called()
+
     def test_app_update_and_unknown_modal(self):
         pkg=self.a.context['config']['package']
         self.a.driver.page_source=xml(pkg,['New Update','Update','Cancel'])
@@ -85,11 +106,21 @@ class ScrollTests(unittest.TestCase):
         for tab in tabs: tab.is_displayed.return_value=True
         name=Mock();name.text='VisionRay';name.is_displayed.return_value=True
         a.driver.find_elements.return_value=tabs
-        a.wait.side_effect=[Mock(), name, tabs, Mock()]
+        a.wait.side_effect=['models', Mock(), name, tabs, Mock()]
         with patch('studio.pairing.time.sleep'):
             PairingPage(a).enable_g_series_models()
         self.assertEqual(name.click.call_count,11)
-        self.assertEqual(a.wait.call_count,4)
+        self.assertEqual(a.wait.call_count,5)
+
+    def test_add_device_login_redirect_restores_account_before_models(self):
+        a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
+        a.wait.side_effect=['login', Mock()]
+        a.driver.find_elements.return_value=[Mock(text=name, is_displayed=Mock(return_value=True))
+                                             for name in ('DPVR G1', 'DPVR G3', 'DPVR G6')]
+        with patch('studio.auth.AuthPage') as auth:
+            PairingPage(a).enable_g_series_models()
+        auth.return_value.registered.assert_called_once_with()
+        self.assertEqual(a.click.call_args_list[:2], [unittest.mock.call('pair.add')] * 2)
 
     def test_checks_last_page_even_when_scroll_returns_false(self):
         a=Mock();a.context={'config':{'pairing':{'max_scrolls':12,'model_label_id':'label'}}}
@@ -121,10 +152,15 @@ class RoutingTests(unittest.TestCase):
         entry={'sheet':'G01_配对','id':'001','node':'cases/test_stub.py::test_case','models':['G3'],'glasses_adb_required':False}
         (self.root/'cases/registry.json').write_text(json.dumps([entry]))
         adb.return_value.preflight.return_value={}
+        adb.return_value.shell.return_value='versionName=1.2.42-debug'
         (self.root/'configs').mkdir()
         (self.root/'configs/catalog.json').write_bytes((ROOT/'configs/catalog.json').read_bytes())
-        context={'phone':'p','glasses':None,'glasses_name':'DPVR G1_13E6','config':{'package':'app','model':'G1','configured':True}}
-        result=execute(self.root,self.file,__import__('studio.workbook',fromlist=['Mapping']).Mapping(),['G01_配对'],context,threading.Event(),lambda *a:None)
+        context={'phone':'p','glasses':None,'glasses_name':'DPVR G1_13E6','app_version':'1.2.42-debug',
+                 'config':{'package':'app','model':'G1','configured':True}}
+        with patch('studio.pgyer.resolve_build', return_value='test-build'), patch(
+            'studio.pgyer.download', return_value=self.root/'app.apk'
+        ), patch('studio.pgyer.install'):
+            result=execute(self.root,self.file,__import__('studio.workbook',fromlist=['Mapping']).Mapping(),['G01_配对'],context,threading.Event(),lambda *a:None)
         self.assertEqual(result['summary']['G01_配对'],{'NOT_APPLICABLE':1})
         adb.return_value.online.assert_called_once_with('p')
 
@@ -151,6 +187,59 @@ class DelayedPairingTests(unittest.TestCase):
             PairingPage(a).observe_late_pairing()
 
 class HomeCompletionTests(unittest.TestCase):
+    def test_app_binding_failure_reports_dialog_without_timeout(self):
+        a = Mock()
+        a.context = {'glasses_name': 'DPVR G3_ADA2', 'config': resolve(ROOT, 'G系列', 'G3')}
+        a.find.side_effect = lambda key: key == 'pair.binding_failed'
+        a.wait.side_effect = lambda predicate, *_: predicate()
+        with self.assertRaisesRegex(AssertionError, 'Binding Failed'):
+            PairingPage(a).finish_binding()
+        a.capture.assert_called_once_with('binding-failed')
+
+    def test_bluetooth_prompt_is_accepted_before_skipping_tutorial(self):
+        a = Mock()
+        a.context = {'glasses_name': 'DPVR G3_ADA2', 'config': resolve(ROOT, 'G系列', 'G3')}
+        a.context['config']['pairing']['skip_tutorial'] = True
+        a.popups.pairing_accepted = 0
+        page = PairingPage(a)
+        page.on_tutorial = Mock(return_value=True)
+        page.on_target_home = Mock(return_value=True)
+        a.find.return_value = False
+        def wait(predicate, label, *_):
+            if label == '引导页蓝牙配对确认或等待已配对设备':
+                a.popups.pairing_accepted = 1
+            return predicate()
+        a.wait.side_effect = wait
+        def click(key):
+            if key == 'pair.skip':
+                self.assertEqual(a.popups.pairing_accepted, 1)
+        a.click.side_effect = click
+        page.observe_late_pairing = Mock()
+        page.finish_binding()
+        page.observe_late_pairing.assert_called_once_with()
+
+    def test_model_page_after_bind_fails_without_retry(self):
+        a = Mock()
+        a.context = {'glasses_name': 'DPVR G1_13E6', 'config': resolve(ROOT, 'G系列', 'G1')}
+        page = PairingPage(a)
+        page.prepare_search = Mock()
+        page.bind = Mock(side_effect=BindingReturnedToModels('returned'))
+        with self.assertRaisesRegex(BindingReturnedToModels, 'returned'):
+            page.run()
+        page.bind.assert_called_once_with()
+        a.driver.press_keycode.assert_not_called()
+
+    def test_return_to_model_selection_reports_incomplete_binding(self):
+        a = Mock()
+        a.context = {'glasses_name': 'DPVR G1_13E6', 'config': resolve(ROOT, 'G系列', 'G1')}
+        a.context['config']['pairing']['skip_tutorial'] = True
+        page = PairingPage(a)
+        page.on_tutorial = Mock(return_value=True)
+        a.find.side_effect = lambda key: key == 'pair.models_title'
+        a.wait.side_effect = lambda predicate, *_: predicate()
+        with self.assertRaisesRegex(AssertionError, '绑定未完成'):
+            page.finish_binding()
+
     def test_home_requires_target_device(self):
         a=Mock();a.context={'glasses_name':'DPVR G1_13E6','config':resolve(ROOT,'G系列','G1')}
         page=PairingPage(a);a.driver.current_activity=page.options['home_activity'];a.find.return_value=True

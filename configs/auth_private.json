@@ -1,0 +1,9 @@
+{
+  "account": "test_zsb@163.com",
+  "password": "NovaQA9!z",
+  "alternate_accounts": {
+    "test_zsb2@163.com": {
+      "password": "Qa1!z9"
+    }
+  }
+}

@@ -42,7 +42,7 @@ def _startup_update(android, firmware, mandatory):
     except AssertionError:
         if mandatory:
             raise
-        raise TestBlocked("非强制升级弹窗未出现；请重装 APP 后登录并绑定眼镜，再执行本用例。")
+        raise AssertionError("非强制升级弹窗未出现；请检查启动时弹窗证据。")
     page.wait_for_completion(target["version"], before, direction)
 
 

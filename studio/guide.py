@@ -14,7 +14,8 @@ class GuidePage:
         a.ensure_foreground()
         if not self.pairing.on_tutorial():
             # 每轮都由用例建立前置状态，避免上轮停在首页或桌面导致失败。
-            HomeDevicePage(a).unbind()
+            # PairingPage.prepare_search 会按当前状态解绑；这里先调用 unbind
+            # 会在已解绑时经 home() 额外绑定一次，再立即解绑。
             self.pairing.options['skip_tutorial'] = False
             self.pairing.run()
         if not self.pairing.on_tutorial():

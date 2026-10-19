@@ -1,0 +1,12 @@
+{
+  "imap_host": "imap.163.com",
+  "imap_port": 993,
+  "account": "test_zsb@163.com",
+  "authorization_code": "HRmJu33GNJca5sEr",
+  "alternate_accounts": {
+    "test_zsb2@163.com": {
+      "login_password": "1234@qwer",
+      "authorization_code": "PEhrRGBwPMgE9APk"
+    }
+  }
+}

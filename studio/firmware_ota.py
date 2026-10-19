@@ -79,6 +79,35 @@ def prepare_target(task_id: int, mandatory: bool) -> None:
     client.set_force(task_id, mandatory, apply=True)
 
 
+def leave_failed_update(android) -> bool:
+    """离开上条 OTA 失败页，供后续独立用例恢复前置页面。"""
+    package = android.context['config']['package']
+    def visible(resource, value):
+        return next((e for e in android.driver.find_elements('id', package + ':id/' + resource)
+                     if e.is_displayed() and e.text.strip() == value), None)
+    failed = visible('uof_btn_text', 'Update Failed')
+    quit_prompt = visible('tv_title', 'Quit the update')
+    if not failed and not quit_prompt:
+        return False
+    if failed and not quit_prompt:
+        back = [e for e in android.driver.find_elements('id', package + ':id/top_bar_back') if e.is_displayed()]
+        if len(back) != 1:
+            raise AssertionError('固件更新失败页缺少返回入口，无法准备后续用例。')
+        back[0].click()
+        android.wait(lambda: visible('tv_title', 'Quit the update') or
+                     not visible('uof_btn_text', 'Update Failed'), '退出失败的固件更新', 8)
+        quit_prompt = visible('tv_title', 'Quit the update')
+    if not quit_prompt:
+        android.log('firmware-recovery', 'left failed update')
+        return True
+    quit_button = visible('tv_cancel', 'Quit')
+    if not quit_button:
+        raise AssertionError('固件更新退出弹窗缺少 Quit 按钮。')
+    quit_button.click()
+    android.log('firmware-recovery', 'left failed update')
+    return True
+
+
 class FirmwareUpdatePage:
     def __init__(self, android):
         self.a = android
@@ -97,9 +126,20 @@ class FirmwareUpdatePage:
 
     def open(self):
         HomeDevicePage(self.a).setting("System Settings")
-        item = self._visible_text(("Firmware Update", "Firmware update"), 15)
-        item.click()
-        self._visible_text(("Firmware Update", "Firmware update"), 15)
+        # 此入口在设置页底部，文字虽可见但触点会贴近导航栏；先滚动到中部，
+        # 再点击可点击的整行，避免把原设置页误当成已打开的固件页。
+        size = self.a.driver.get_window_size()
+        self.a.driver.swipe(size['width'] // 2, int(size['height'] * .8),
+                            size['width'] // 2, int(size['height'] * .4), 350)
+        rows = self.a.wait(lambda: [e for e in self.a.driver.find_elements(
+            'id', self.package + ':id/version') if e.is_displayed() and e.is_enabled()],
+            'Firmware Update 设置入口', 15)
+        if len(rows) != 1:
+            raise TestBlocked(f'Firmware Update 设置入口不唯一：{len(rows)} 项。')
+        rows[0].click()
+        self.a.wait(lambda: any(e.is_displayed() for resource in ('uof_btn', 'uof_version')
+                                for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)),
+                    '真正进入 Firmware Update 页面', 15)
         self.a.capture("firmware-update-page")
 
     def start(self):
@@ -122,6 +162,9 @@ class FirmwareUpdatePage:
         deadline = time.monotonic() + timeout
         observed = set()
         while time.monotonic() < deadline:
+            if self._any_text(('Update Failed', 'Upgrade Failed', 'Download Failed', 'Transfer Failed')):
+                self.a.capture('firmware-update-failed')
+                raise AssertionError('固件更新页显示 Update Failed，请查看该用例截图和手机日志。')
             for name, words in stages:
                 if name not in observed and self._any_text(words):
                     observed.add(name)
