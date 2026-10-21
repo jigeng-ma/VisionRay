@@ -107,7 +107,7 @@ class ScrollTests(unittest.TestCase):
         name=Mock();name.text='VisionRay';name.is_displayed.return_value=True
         a.driver.find_elements.return_value=tabs
         a.wait.side_effect=['models', Mock(), name, tabs, Mock()]
-        with patch('studio.pairing.time.sleep'):
+        with patch('studio.pairing.time.sleep'), patch.object(PairingPage, '_model_names', return_value=set()):
             PairingPage(a).enable_g_series_models()
         self.assertEqual(name.click.call_count,11)
         self.assertEqual(a.wait.call_count,5)
@@ -117,7 +117,8 @@ class ScrollTests(unittest.TestCase):
         a.wait.side_effect=['login', Mock()]
         a.driver.find_elements.return_value=[Mock(text=name, is_displayed=Mock(return_value=True))
                                              for name in ('DPVR G1', 'DPVR G3', 'DPVR G6')]
-        with patch('studio.auth.AuthPage') as auth:
+        with patch('studio.auth.AuthPage') as auth, patch.object(
+            PairingPage, '_model_names', return_value={'DPVR G1', 'DPVR G3', 'DPVR G6'}):
             PairingPage(a).enable_g_series_models()
         auth.return_value.registered.assert_called_once_with()
         self.assertEqual(a.click.call_args_list[:2], [unittest.mock.call('pair.add')] * 2)
@@ -128,7 +129,7 @@ class ScrollTests(unittest.TestCase):
         last=Mock();last.text='DPVR G6'
         a.driver.find_elements.side_effect=[[first],[last]]
         a.driver.execute_script.return_value=False
-        with patch('studio.pairing.time.sleep'):
+        with patch('studio.pairing.time.sleep'), patch.object(PairingPage, '_scroll_models_top'):
             PairingPage(a).select_model('DPVR G6')
         last.click.assert_called_once();first.click.assert_not_called()
 

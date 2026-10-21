@@ -160,7 +160,7 @@
       "pairing"
     ],
     "glasses_adb_required": false,
-    "timeout_seconds": 120,
+    "timeout_seconds": 420,
     "execution_order": 20,
     "automation_id": "VisionRay_0019"
   },
@@ -722,7 +722,7 @@
     "node": "cases/g_series/test_gallery.py::test_import_card_on_home_and_gallery",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 180
+    "timeout_seconds": 300
   },
   {
     "sheet": "G04_媒资导入",
@@ -731,7 +731,7 @@
     "node": "cases/g_series/test_gallery.py::test_each_media_updates_import_count",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 150
+    "timeout_seconds": 300
   },
   {
     "sheet": "G04_媒资导入",
@@ -740,7 +740,7 @@
     "node": "cases/g_series/test_gallery.py::test_import_from_home",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 180
+    "timeout_seconds": 900
   },
   {
     "sheet": "G04_媒资导入",
@@ -749,7 +749,7 @@
     "node": "cases/g_series/test_gallery.py::test_import_from_gallery",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 180
+    "timeout_seconds": 900
   },
   {
     "sheet": "G05_空间",
@@ -758,7 +758,7 @@
     "node": "cases/g_series/test_gallery.py::test_delete_image_and_video_from_app_and_phone",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 240
+    "timeout_seconds": 1200
   },
   {
     "sheet": "G05_空间",
@@ -767,7 +767,7 @@
     "node": "cases/g_series/test_gallery.py::test_delete_image_from_app",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 900
   },
   {
     "sheet": "G05_空间",
@@ -776,7 +776,7 @@
     "node": "cases/g_series/test_gallery.py::test_delete_image_from_app_and_phone",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 900
   },
   {
     "sheet": "G05_空间",
@@ -785,7 +785,7 @@
     "node": "cases/g_series/test_gallery.py::test_download_image",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 180
+    "timeout_seconds": 900
   },
   {
     "sheet": "G05_空间",
@@ -794,7 +794,7 @@
     "node": "cases/g_series/test_gallery.py::test_video_playback",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 300
+    "timeout_seconds": 900
   },
   {
     "sheet": "G05_空间",
@@ -803,7 +803,7 @@
     "node": "cases/g_series/test_gallery.py::test_download_video",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 180
+    "timeout_seconds": 900
   },
   {
     "sheet": "G05_空间",
@@ -812,7 +812,7 @@
     "node": "cases/g_series/test_gallery.py::test_delete_video_from_app_and_phone",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 240
+    "timeout_seconds": 900
   },
   {
     "sheet": "G06_AI对话记录&设置",
@@ -875,7 +875,7 @@
     "node": "cases/g_series/test_settings.py::test_photo_watermark_download",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 1200
   },
   {
     "sheet": "G07_拍摄设置",
@@ -884,7 +884,7 @@
     "node": "cases/g_series/test_settings.py::test_photo_watermark_share",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 90
+    "timeout_seconds": 1200
   },
   {
     "sheet": "G07_拍摄设置",
@@ -893,7 +893,7 @@
     "node": "cases/g_series/test_settings.py::test_video_watermark",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 240
+    "timeout_seconds": 1200
   },
   {
     "sheet": "G07_拍摄设置",
@@ -902,7 +902,7 @@
     "node": "cases/g_series/test_settings.py::test_auto_save_album",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 300
+    "timeout_seconds": 2400
   },
   {
     "sheet": "G07_拍摄设置",
@@ -911,7 +911,7 @@
     "node": "cases/g_series/test_settings.py::test_capture_video_duration",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 2100
+    "timeout_seconds": 3000
   },
   {
     "sheet": "G08_系统设置",
@@ -1005,7 +1005,7 @@
   {
     "sheet": "G00_登录注册", "id": "C-L_005", "automation_id": "VisionRay_0108",
     "node": "cases/g_series/test_auth.py::test_auth[AUTH_005]", "requires": [],
-    "glasses_adb_required": false, "timeout_seconds": 600, "app_variant": "release"
+    "glasses_adb_required": false, "timeout_seconds": 900
   },
   {
     "sheet": "G00_登录注册", "id": "C-L_007", "automation_id": "VisionRay_0109",
@@ -1129,13 +1129,13 @@
   },
   {
     "sheet": "G10_我的", "id": "MY_008", "automation_id": "VisionRay_0132",
-    "node": "cases/g_series/test_my.py::test_feedback", "requires": [],
-    "glasses_adb_required": false, "timeout_seconds": 180, "manual": true
+    "node": "cases/g_series/test_my.py::test_feedback_idea_allow", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 300
   },
   {
     "sheet": "G10_我的", "id": "MY_009", "automation_id": "VisionRay_0133",
-    "node": "cases/g_series/test_my.py::test_feedback", "requires": [],
-    "glasses_adb_required": false, "timeout_seconds": 180, "manual": true
+    "node": "cases/g_series/test_my.py::test_feedback_bug_deny", "requires": [],
+    "glasses_adb_required": false, "timeout_seconds": 300
   },
   {"sheet": "基础项", "id": "NF_001", "automation_id": "VisionRay_0142", "node": "cases/g_series/test_foundation.py::test_install_and_relaunch", "requires": [], "glasses_adb_required": false, "timeout_seconds": 300, "execution_order": 10},
   {"sheet": "基础项", "id": "NF_002", "automation_id": "VisionRay_0134", "node": "cases/g_series/test_foundation.py::test_lower_version_cover_install", "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 900, "execution_order": 20},

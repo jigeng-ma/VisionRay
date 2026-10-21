@@ -20,6 +20,20 @@ PASSWORD = (AUTH['password'] if EMAIL == AUTH['account']
             else AUTH['alternate_accounts'][EMAIL]['password'])
 
 
+def install_auth_variant(android, context, variant):
+    """为 Google 登录用例全新安装指定版本，并核对手机上的实际版本。"""
+    from .pgyer import OVERSEAS_DOWNLOAD_PAGE, download, install, resolve_build
+    version = context['app_version'] if variant == 'debug' else context['app_version'].removesuffix('-debug')
+    path = ROOT / 'work' / 'downloads' / f'VisionRay-{version}.apk'
+    apk = download(resolve_build(OVERSEAS_DOWNLOAD_PAGE, version, None, variant), path)
+    install(context['phone'], apk, context['config']['package'])
+    actual = re.search(r'(?m)^\s*versionName=([^\s]+)',
+                       Adb().shell(context['phone'], 'dumpsys', 'package', context['config']['package']))
+    if not actual or actual.group(1) != version:
+        raise AssertionError(f'{variant} 包安装后版本错误：期望 {version}，实际 {actual.group(1) if actual else "未读取到"}')
+    android.log('google-app-variant', {'expected': version, 'actual': actual.group(1)})
+
+
 def alternate_password(password):
     return 'NovaQA9!z' if password != 'NovaQA9!z' else 'VisionRay9!z'
 
@@ -158,6 +172,11 @@ class AuthPage:
         self.a.ensure_foreground()
         from .firmware_ota import leave_failed_update
         leave_failed_update(self.a)
+        if self.a.find('pair.binding_failed'):
+            buttons = [e for e in self.d.find_elements('id', self.package + ':id/btn_primary')
+                       if e.is_displayed() and e.text == 'OK']
+            if len(buttons) == 1:
+                buttons[0].click()
         self.leave_pending_guide()
         self.a.wait(lambda: any(self.has(k) for k in ('tabIcon', 'tv_login_by_email',
             'back_iv', 'tv_cancel')), '账号流程页面加载完成', 25)
@@ -289,6 +308,16 @@ class AuthPage:
         self.hide_keyboard()
 
     def new_code(self, trigger):
+        for attempt in range(2):
+            try:
+                return self._new_code_once(trigger)
+            except TestBlocked as exc:
+                if attempt or '请求次数过于频繁' not in str(exc):
+                    raise
+                self.a.log('verification-code-rate-limit', {'wait_seconds': 300, 'reason': str(exc)})
+                time.sleep(300)
+
+    def _new_code_once(self, trigger):
         checkpoint = self.mail.checkpoint()
         since = float(Adb().shell(self.a.context['phone'], 'date', '+%s'))
         trigger()
@@ -353,6 +382,8 @@ class AuthPage:
 
     def resend_code(self):
         def trigger():
+            self.a.assert_wait(lambda: self.el('tv_resend_captcha').is_enabled(), True,
+                               '重发验证码按钮可用状态', 75)
             used = self.mail.today_code_count()
             if used >= 50:
                 raise TestBlocked(f'{self.mail.account} 今日已接收 {used} 条验证码，达到每天 50 条上限。')
@@ -362,7 +393,6 @@ class AuthPage:
             message = self.request_failure(since)
             if message:
                 raise TestBlocked('重发验证码被拒绝：' + message)
-        self.a.wait(lambda: self.el('tv_resend_captcha').is_enabled(), '允许重新发送', 75)
         return self.new_code(trigger)
 
     def enter_code(self, code):
@@ -395,7 +425,8 @@ class AuthPage:
         self.request_code(trigger)
 
     def delete_code(self):
-        code = self.new_code(self.start_delete_code)
+        self.delete_prompt()
+        code = self.new_code(lambda: self.request_code(lambda: self.click('tv_confirm')))
         self.text('ID Verification')
         assert self.email in self.el('tv_summary').text
         return code
@@ -404,7 +435,7 @@ class AuthPage:
         code = self.delete_code()
         # 输入第6位会自动提交注销，随后确认游客状态。
         self.enter_code(code)
-        self.a.wait(lambda: self.has('tabIcon'), '注销后主页面', 25)
+        self.a.assert_wait(lambda: self.has('tabIcon'), True, '注销后主页面状态', 25)
         self.home()
         assert self.el('hint').text == 'Not logged in'
 
@@ -418,7 +449,7 @@ class AuthPage:
         password = self.password if password is None else password
         self.fill('et_pwd', password)
         self.click('tv_pwd_ok')
-        self.a.wait(lambda: self.has('tabIcon'), '注册后自动登录', 25)
+        self.a.assert_wait(lambda: self.has('tabIcon'), True, '注册后自动登录状态', 25)
         self.home()
         assert self.el('hint').text == self.email
         self.password = password

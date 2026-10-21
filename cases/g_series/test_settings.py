@@ -1,5 +1,6 @@
+import time
 import pytest
-from studio.errors import TestBlocked
+from studio.errors import TestBlocked, WaitTimeout
 from studio.ble_commands import BleMediaCommands
 from studio.gallery import GalleryPage
 from studio.home_device import HomeDevicePage
@@ -44,7 +45,8 @@ def _prepare_watermarked_photo(android):
     page = SettingsPage(android); page.capture(); page.toggle_round_trip('photo_watermark_switch'); page.on('photo_watermark_switch')
     gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
     BleMediaCommands(android).take_photo()
-    android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '拍照后新增待导入媒资', 60)
+    android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
+                        '拍照后首页待导入媒资数量', 300, lambda actual, expected: actual >= expected)
     gallery.import_from('home'); gallery.preview_latest('image')
     return gallery
 
@@ -68,12 +70,36 @@ def test_photo_watermark_share(android):
 def test_video_watermark(android):
     def action():
         page = SettingsPage(android); page.capture(); page.toggle_round_trip('video_watermark_switch'); page.on('video_watermark_switch')
-        gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
-        BleMediaCommands(android).record_video()
-        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '录像后新增待导入媒资', 90)
-        gallery.import_from('home'); gallery.preview_latest('video'); gallery.assert_visionray_watermark(video=True)
-        gallery.action('play_btn', '播放视频'); __import__('time').sleep(2)
-        gallery.action('play_btn', '暂停后抽查视频帧'); gallery.assert_visionray_watermark(video=True)
+        gallery = GalleryPage(android)
+        before, videos = gallery.pending_count_or_zero('home'), gallery.gallery_media_count()['video']
+        duration = 60
+        BleMediaCommands(android).record_video(duration=duration)
+        try:
+            android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
+                                '录像后首页待导入媒资数量', duration + 180,
+                                lambda actual, expected: actual >= expected)
+            gallery.import_from('home', timeout=max(300, duration + 180))
+            android.assert_wait(lambda: gallery.gallery_media_count()['video'], videos + 1,
+                                'APP 媒资库视频数量', duration + 180,
+                                lambda actual, expected: actual >= expected)
+        except WaitTimeout:
+            raise AssertionError(f'录像 {duration} 秒后未在预留时间内完成导入；'
+                                 f'导入前视频 {videos} 个，当前 {gallery.gallery_media_count()["video"]} 个。') from None
+        gallery.preview_latest('video')
+        for stage in ('详情封面', '播放后暂停帧'):
+            if stage == '播放后暂停帧':
+                gallery.action('play_btn', '播放视频'); time.sleep(2)
+                gallery.action('play_btn', '暂停后抽查视频帧')
+            deadline = time.monotonic() + duration + 120
+            while True:
+                try:
+                    gallery.assert_visionray_watermark(video=True)
+                    break
+                except AssertionError as error:
+                    if time.monotonic() >= deadline:
+                        raise AssertionError(f'视频已导入，但{stage}在 {duration + 120} 秒内'
+                                             f'仍未识别到 VisionRay 水印：{error}') from None
+                    time.sleep(10)
     run(android, action)
 
 
@@ -86,13 +112,17 @@ def test_auto_save_album(android):
         gallery = GalleryPage(android); images = gallery.phone_album_count('image'); videos = gallery.phone_album_count('video')
         command = BleMediaCommands(android); before = gallery.pending_count_or_zero('home')
         command.take_photo()
-        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '拍照后新增待导入媒资', 90)
+        android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
+                            '拍照后首页待导入媒资数量', 300, lambda actual, expected: actual >= expected)
         gallery.import_from('home')
-        android.wait(lambda: gallery.phone_album_count('image') >= images + 1, '导入图片后手机相册自动保存图片', 90)
+        android.assert_wait(lambda: gallery.phone_album_count('image'), images + 1,
+                            '导入后手机相册图片数量', 300, lambda actual, expected: actual >= expected)
         before = gallery.pending_count_or_zero('home'); command.record_video()
-        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1, '录像后新增待导入媒资', 120)
+        android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
+                            '录像后首页待导入媒资数量', 300, lambda actual, expected: actual >= expected)
         gallery.import_from('home')
-        android.wait(lambda: gallery.phone_album_count('video') >= videos + 1, '导入视频后手机相册自动保存视频', 120)
+        android.assert_wait(lambda: gallery.phone_album_count('video'), videos + 1,
+                            '导入后手机相册视频数量', 300, lambda actual, expected: actual >= expected)
     run(android, action)
 
 
@@ -101,14 +131,15 @@ def test_capture_video_duration(android):
         page = SettingsPage(android); page.capture(); page.set_duration('video_duration', '12Min')
         gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
         BleMediaCommands(android).record_video(duration=720)
-        # 眼镜写入和导入队列较慢；每 5 分钟轮询一次，最多 20 分钟。
+        # 长录像同步和导入各按录像时长加 3 分钟等待；每 5 分钟检查一次。
         for _ in range(4):
             if gallery.pending_count_or_zero('home') >= before + 1:
                 break
-            __import__('time').sleep(300)
+            if _ < 3:
+                __import__('time').sleep(300)
         else:
-            raise AssertionError('录像结束后 20 分钟内未出现新增媒资。')
-        gallery.import_from('home', timeout=1200)
+            raise AssertionError('录像结束后 15 分钟内未出现新增媒资。')
+        gallery.import_from('home', timeout=720 + 180)
         gallery.assert_latest_video_duration(720, 5)
     run(android, action)
 
@@ -119,8 +150,8 @@ def test_system_recording_duration(android):
         # 录制一段默认 15 秒音频，确认该眼镜设置可被实际 APP 指令使用并产生待导入媒资。
         gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
         BleMediaCommands(android).record_audio()
-        android.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1,
-                     '录音后 APP 显示新增待导入媒资', 60)
+        android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
+                            '录音后首页待导入媒资数量', 60, lambda actual, expected: actual >= expected)
     run(android, action)
 
 
@@ -135,8 +166,8 @@ def test_system_factory_reset(android):
     def action():
         gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
         BleMediaCommands(android).take_photo()
-        android.wait(lambda: gallery.pending_count_or_zero('home') == before + 1,
-                     '恢复出厂前拍照后 APP 媒资数量新增', 60)
+        android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
+                            '恢复出厂前首页待导入媒资数量', 60)
         page = SettingsPage(android); page.system(); page.factory_reset()
         gallery.open_home()
         assert not gallery.import_card(), '恢复出厂并回到 APP 首页后仍显示恢复前的媒资卡片。'
@@ -149,9 +180,13 @@ def test_system_single_unbind(android):
 
 def test_system_multi_unbind(android):
     def action():
-        page = HomeDevicePage(android); page.home()
+        page = HomeDevicePage(android)
+        android.ensure_foreground()
+        if android.find('pair.add'):
+            raise TestBlocked('多设备解绑前置不满足：当前为 Add Device 空设备页，已绑定 0 台，至少需要 2 台。')
+        page.home()
         devices = [e for e in android.driver.find_elements('id', page.package + ':id/tv_device_name') if e.is_displayed()]
         if len(devices) < 2:
-            raise TestBlocked('多设备解绑需要至少绑定两台眼镜。')
+            raise TestBlocked(f'多设备解绑前置不满足：当前识别到 {len(devices)} 台已绑定眼镜，至少需要 2 台。')
         page.unbind()
     run(android, action)

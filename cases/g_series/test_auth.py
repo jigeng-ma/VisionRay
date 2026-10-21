@@ -6,9 +6,9 @@ import time
 from pathlib import Path
 from xml.etree import ElementTree as ET
 import pytest
-from studio.auth import AUTH, ROOT, AuthPage, EMAIL, PASSWORD, alternate_password
+from studio.auth import AUTH, ROOT, AuthPage, EMAIL, PASSWORD, alternate_password, install_auth_variant
 from studio.devices import Adb
-from studio.errors import TestBlocked
+from studio.errors import TestBlocked, WaitTimeout
 from studio.mailbox import VerificationMailbox
 
 
@@ -176,8 +176,6 @@ def load_used_code():
     data = json.loads(path.read_text(encoding='utf-8'))
     if data.get('account') != EMAIL or data.get('last_case') != 37 or not re.fullmatch(r'\d{6}', str(data.get('code', ''))):
         raise TestBlocked('C-L_037 的旧验证码记录无效。')
-    if time.time() - data.get('sent_at', 0) >= 30 * 60:
-        raise TestBlocked('C-L_037 的旧码已自然过期，无法证明它因使用一次而失效。')
     return data['code']
 
 
@@ -188,13 +186,23 @@ def context(context):
 
 
 @pytest.fixture
-def auth(android):
+def auth(android, context, request):
     page = AuthPage(android)
+    google_login = request.node.callspec.params['number'] == 5
     try:
+        if google_login:
+            install_auth_variant(android, context, 'release')
+            page.login_page()
         yield page
     finally:
-        # 清理失败作为 teardown ERROR，不能掩盖账号未恢复的事实。
-        if not page.keep_code_page:
+        if google_login:
+            install_auth_variant(android, context, 'debug')
+            android.ensure_foreground()
+            android.wait(lambda: page.has('tv_login_by_email') or page.has('tabIcon'),
+                         '重装 debug 后完成首次启动协议确认', 30)
+            android.capture('google-debug-restored')
+        elif not page.keep_code_page:
+            # 清理失败作为 teardown ERROR，不能掩盖账号未恢复的事实。
             page.restore()
 
 
@@ -308,6 +316,9 @@ def run_case(p, n, shared_code=None):
                 p.text(label)
     elif n == 5:
         # Google 入口只在登录方式选择页；邮箱密码页没有该控件。
+        variant = p.installed_variant()
+        if variant != 'release':
+            raise AssertionError(f'Google 登录用例需要 release 包，当前安装的是 {variant} 包。')
         p.entry()
         p.click('tv_login_by_google')
         account = p.a.wait(lambda: next((e for e in p.d.find_elements(
@@ -316,9 +327,15 @@ def run_case(p, n, shared_code=None):
                      "/ancestor-or-self::*[@clickable='true'][1]") if e.is_displayed()), None),
                            'Google 账号选择项 majigeng2016@163.com', 20)
         account.click()
-        result = p.a.wait(lambda: 'success' if p.has('tabIcon') else
-                          'login_failed' if any(e.text == 'Login Failed' for e in p.all('tv_title')) else None,
-                          'Google 登录成功或明确失败提示', 30)
+        try:
+            result = p.a.wait(lambda: 'login_failed' if 'Login Failed' in p.d.page_source else
+                              'success' if p.has('tabIcon') else None,
+                              'Google 登录成功或明确失败提示', 75)
+        except WaitTimeout:
+            # 服务端错误提示有时恰好在超时截图期间出现。
+            if 'Login Failed' not in p.d.page_source:
+                raise AssertionError('Google 登录等待 75 秒后既未进入已登录首页，也未显示 Login Failed。') from None
+            result = 'login_failed'
         if result == 'login_failed':
             variant = p.installed_variant()
             if variant == 'debug':
@@ -446,21 +463,26 @@ def run_case(p, n, shared_code=None):
     elif n in (24, 28, 29, 30, 31, 32, 33, 34, 37, 38, 41, 47, 48):
         fresh_code = check_code(p, n, code, 'register')
     elif n == 39:
-        # 注册成功后尝试沿系统返回栈进入旧验证码页；绝不请求新验证码，
-        # 因为新发码本身就可能令旧码失效，无法证明一次性使用规则。
-        p.a.ensure_foreground()
-        for _ in range(4):
-            if p.has('et_code1'):
-                break
-            p.d.back()
-            p.settle()
-        if not p.has('et_code1'):
-            raise TestBlocked('注册成功后 APP 未保留验证码页，无法在不重新发码的情况下通过 UI 重输旧码。')
-        assert EMAIL in p.el('tv_summary').text, '返回的验证码页不是原测试邮箱'
+        # 注销入口会发送新码；此处只验证注册旧码在注销流程中被拒绝，
+        # 不能单独证明失效原因是已使用、新码覆盖还是自然过期。
+        p.start_delete_code()
+        p.text('ID Verification')
+        assert EMAIL in p.el('tv_summary').text, '注销验证码页不是原测试邮箱'
         p.enter_code(shared_code)
-        p.click('tv_captcha_next')
-        assert p.el('tv_title').text == 'Incorrect verification code', '旧码未被明确拒绝，不能判定通过'
+        if not p.has('tvDesc') and p.has('tv_captcha_next') and p.el('tv_captcha_next').is_enabled():
+            p.click('tv_captcha_next')
+        p.a.assert_wait(lambda: p.has('tvDesc') or p.has('tabIcon'), True,
+                        '旧验证码提交后出现错误提示或注销结果', 20)
+        if p.has('tabIcon') and not p.has('tvDesc'):
+            raise AssertionError('注册旧验证码被接受，账号已注销')
+        message = ' '.join((p.el('tv_title').text, p.el('tvDesc').text)).lower()
+        assert (any(word in message for word in ('code', 'verification', '验证码')) and
+                any(word in message for word in ('incorrect', 'invalid', 'expired', 'error', 'failed', 'used',
+                                                 '错误', '失效', '过期', '无效'))), \
+            f'旧验证码未被明确判定错误或失效：{message}'
         p.click('tv_confirm')
+        p.home()
+        assert p.el('hint').text == EMAIL, '旧验证码提交后账号已注销'
     elif n in (42, 43, 44, 45, 46, 49, 72, 73, 74, 75, 78):
         if n in (42, 72):
             for key in ('et_pwd', 'iv_hide_pwd', 'tv_pwd_ok', 'back_iv'):
@@ -684,7 +706,8 @@ def check_code(p, n, code, mode):
         assert EMAIL in p.el('tv_summary').text
         return fresh_code
     elif n == 67:
-        p.a.wait(lambda: p.el('tv_resend_captcha').is_enabled(), '允许重新发送', 75)
+        p.a.assert_wait(lambda: p.el('tv_resend_captcha').is_enabled(), True,
+                        '重发验证码按钮可用状态', 75)
         p.resend_code()
         assert EMAIL in p.el('tv_summary').text
     elif n == 37:

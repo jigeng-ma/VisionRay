@@ -276,7 +276,7 @@ class GalleryPage:
         self.a.log('imported-media-total', result)
         return result
 
-    def import_from(self, surface, timeout=120):
+    def import_from(self, surface, timeout=300):
         """在指定入口导入，并返回导入前卡片显示的真实数量。"""
         before = self.pending_count_on(surface)
         button = self.one('status_action_btn' if self.all('status_title_tv') else 'import_btn', '导入按钮')
@@ -284,9 +284,11 @@ class GalleryPage:
             raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
         button.click()
         if self.all('status_title_tv'):
-            self.a.wait(lambda: not self.all('status_title_tv'), '导入完成', timeout)
+            self.a.assert_wait(lambda: bool(self.all('status_title_tv')), False,
+                               '首页导入后待导入通知仍存在', timeout)
         else:
-            self.a.wait(lambda: not self.import_card(), '空间页导入完成', timeout)
+            self.a.assert_wait(lambda: bool(self.import_card()), False,
+                               '空间页导入后待导入卡片仍存在', timeout)
         # 导入完成后，两个入口都不应继续显示同一批待导入媒资。
         self.open_home()
         assert not self.import_card(), '首页导入完成后仍显示待导入媒资卡片。'
@@ -303,13 +305,14 @@ class GalleryPage:
             from .ble_commands import BleMediaCommands
             before = self.pending_count_or_zero('home')
             BleMediaCommands(self.a).take_photo()
-            self.a.wait(lambda: self.pending_count_or_zero('home') >= before + 1,
-                        '生成空间用例所需测试图片', 60)
+            self.a.assert_wait(lambda: self.pending_count_or_zero('home'), before + 1,
+                               '生成空间用例后首页待导入媒资数量', 60,
+                               lambda actual, expected: actual >= expected)
             self.import_from('home')
             self.open()
             items = self.all('iv_photo') or self.all('iv_media')
         if len(items) < minimum:
-            raise TestBlocked(f'相册需要至少 {minimum} 个已导入测试媒资，当前为 {len(items)} 个。')
+            raise AssertionError(f'已生成并导入测试媒资，但相册期望至少 {minimum} 个，实际 {len(items)} 个。')
         return items
 
     def preview_first(self):
@@ -339,8 +342,9 @@ class GalleryPage:
         before = self.pending_count_or_zero('home')
         command = BleMediaCommands(self.a)
         (command.take_photo if kind == 'image' else command.record_video)()
-        self.a.wait(lambda: self.pending_count_or_zero('home') >= before + 1,
-                    '生成空间用例所需测试媒资', 60)
+        self.a.assert_wait(lambda: self.pending_count_or_zero('home'), before + 1,
+                           '生成空间用例后首页待导入媒资数量', 60,
+                           lambda actual, expected: actual >= expected)
         self.import_from('home')
         self.preview(kind)
 
@@ -368,7 +372,7 @@ class GalleryPage:
                 checkbox.click()
         confirm = self.a.wait(lambda: next((e for e in self.all('tv_confirm') if e.text), None), '确认删除按钮', 10)
         confirm.click()
-        self.a.wait(lambda: not self.all('tv_confirm'), '删除确认弹窗关闭', 15)
+        self.a.assert_wait(lambda: bool(self.all('tv_confirm')), False, '删除确认弹窗是否仍显示', 15)
 
     def delete_current_and_assert_absent(self, also_phone=False):
         """删除当前预览媒资，并确认 APP 数据库中恰好少一条记录。"""
@@ -376,8 +380,8 @@ class GalleryPage:
         if not before:
             raise TestBlocked('APP 中没有可删除媒资。')
         self.confirm_delete(also_phone)
-        self.a.wait(lambda: len(self.media_records()) == len(before) - 1,
-                    '删除后 APP 媒资数量减少一条', 30)
+        self.a.assert_wait(lambda: len(self.media_records()), len(before) - 1,
+                           '删除后 APP 媒资数量', 30)
         after = self.media_records()
         removed = before - after
         if len(removed) != 1:
@@ -388,21 +392,11 @@ class GalleryPage:
         """下载当前媒资，返回 MediaStore 中唯一新增的真实文件 ID。"""
         before = self.phone_album_rows(kind)
         self.download()
-        def added():
-            rows = self.phone_album_rows(kind) - before
-            return rows if len(rows) == 1 else None
-        try:
-            added_id = next(iter(self.a.wait(added, '下载后手机相册新增媒资', 20)))
-            self.a.log('phone-album-added', {'kind': kind, 'before': len(before), 'id': added_id})
-            return added_id
-        except Exception as error:
-            # 同一媒资重复下载时，APP 会复用相册中的既有文件而不创建副本；仍然读取该文件校验水印。
-            rows = self.phone_album_rows(kind)
-            if not rows:
-                raise error
-            media_id = max(rows)
-            self.a.log('phone-album-reused', {'kind': kind, 'id': media_id, 'reason': str(error)})
-            return media_id
+        self.a.assert_wait(lambda: len(self.phone_album_rows(kind) - before), 1,
+                           f'下载后手机相册新增{kind}数量', 20)
+        added_id = next(iter(self.phone_album_rows(kind) - before))
+        self.a.log('phone-album-added', {'kind': kind, 'before': len(before), 'id': added_id})
+        return added_id
 
     def _watermark_text(self, image, label, video=False):
         try:
@@ -461,11 +455,12 @@ class GalleryPage:
 
     def download(self):
         self.action('ll_download', '下载')
-        self.a.wait(lambda: not self.all('ll_download') or self.one('ll_download').is_enabled(), '下载完成', 60)
+        self.a.assert_wait(lambda: not self.all('ll_download') or self.one('ll_download').is_enabled(),
+                           True, '下载完成状态', 60)
 
     def share(self):
         self.action('ll_share', '分享')
-        self.a.wait(lambda: self.d.current_package != self.package, '系统分享面板', 12)
+        self.a.assert_wait(lambda: self.d.current_package != self.package, True, '系统分享面板打开状态', 12)
 
     def assert_visionray_watermark(self, video=False):
         """OCR 校验 APP 视频详情页渲染的左下角水印。"""
@@ -491,14 +486,22 @@ class GalleryPage:
         self.a.log('video-thumbnail-duration', {'actual': actual, 'shown': shown, 'expected': expected_seconds})
 
     def play_pause(self):
+        from .errors import WaitTimeout
         def seconds():
             value = self.one('cur_time_tv', '视频当前播放时间').text
             minute, second = map(int, value.split(':'))
             return minute * 60 + second
         # 新版 ExoPlayer 的播放/暂停共用 play_btn，以播放时间递增和暂停后的冻结判定状态。
         before = seconds()
-        self.action('play_btn', '播放')
-        self.a.wait(lambda: seconds() > before, '视频播放进度变化', 8)
+        for attempt in range(2):
+            self.action('play_btn', '播放' if attempt == 0 else '重新播放')
+            try:
+                self.a.wait(lambda: seconds() > before, '视频播放进度变化', 8)
+                break
+            except WaitTimeout:
+                self.a.capture('video-playback-still-at-zero')
+                if attempt:
+                    raise AssertionError(f'视频播放进度未变化：播放前 {before} 秒，重试后 {seconds()} 秒。') from None
         self.action('play_btn', '暂停播放')
         paused = seconds()
         time.sleep(1)

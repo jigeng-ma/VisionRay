@@ -1,8 +1,16 @@
 import unittest
 from unittest.mock import Mock, patch
 from studio.android import Android
+from studio.errors import WaitTimeout
 
 class ForegroundTests(unittest.TestCase):
+    def test_business_wait_reports_last_actual_value(self):
+        a = Android({'config': {'package': 'test.app'}})
+        a.wait = Mock(side_effect=WaitTimeout('等待超时'))
+        with self.assertRaisesRegex(AssertionError, '期望 4，实际 3'):
+            a.assert_wait(lambda: 3, 4, '媒资数量', 60)
+        self.assertEqual(a.assert_wait(lambda: 4, 4, '媒资数量', 60), 4)
+
     def adapter(self, current):
         a=Android({'config':{'package':'test.app'}});a.driver=Mock();a.driver.current_package=current
         a.popups=Mock();a.popups.handle.return_value=False

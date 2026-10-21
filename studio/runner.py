@@ -2,6 +2,7 @@ import collections
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -9,7 +10,6 @@ import subprocess
 import sys
 import time
 import uuid
-import html
 import urllib.request
 from datetime import datetime
 from dataclasses import asdict
@@ -25,6 +25,11 @@ def ordered_plan(cases, selected, entries):
 
 def save_json(path, data):
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def write_report(folder, run_id, context, records, entries):
+    from .report import write_report as render_report
+    render_report(folder, run_id, context, records, entries)
 
 
 def registry(root, product=None):
@@ -134,11 +139,12 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
         filename = version
         safe_version = ''.join(c if c.isalnum() or c in '.-_' else '_' for c in filename)
         apk = download(build_key, root / 'work' / 'downloads' / f'VisionRay-{safe_version}.apk')
-        emit('service', f'正在安装 {variant} APP…')
-        install(context['phone'], apk)
+        emit('service', f'正在卸载旧包并安装 {version} {variant} APP…')
+        install(context['phone'], apk, context['config']['package'])
         installed = adb.shell(context['phone'], 'dumpsys', 'package', context['config']['package'])
-        if version and f'versionName={version}' not in installed:
-            raise RuntimeError(f'安装后的 APP 版本与输入不符：期望 {version}')
+        installed_versions = re.findall(r'(?m)^\s*versionName=([^\s]+)', installed)
+        if version not in installed_versions:
+            raise RuntimeError(f'安装后的 APP 版本与输入不符：期望 {version}，实际 {installed_versions or "未读取到"}')
         current_variant = variant
 
     # 全部用例默认 debug；仅由用例注册表 app_variant=release 覆盖。
@@ -228,8 +234,11 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                                 if stop.wait(.15):
                                     reason = ('INTERRUPTED', '使用者停止执行。')
                                     break
-                                if time.monotonic() - start > item.get('timeout_seconds', timeout):
-                                    reason = ('ERROR', f'用例超时（{item.get("timeout_seconds", timeout)} 秒）。')
+                                case_timeout = item.get('timeout_seconds', timeout)
+                                if case['sheet'] == 'G00_登录注册':
+                                    case_timeout += 300  # 发码限频时等待 5 分钟后重试一次。
+                                if time.monotonic() - start > case_timeout:
+                                    reason = ('ERROR', f'用例超时（{case_timeout} 秒）。')
                                     break
                             if reason:
                                 process.terminate()
@@ -275,15 +284,7 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
         summary = {name: dict(collections.Counter(r['status'] for r in records if r['sheet'] == name)) for name in modules}
         save_json(folder / 'summary.json', summary)
         save_json(folder / 'results.json', records)
-        from .workbook import LABELS
-        rows = ''.join('<tr>' + ''.join('<td>' + html.escape(str(r[k])) + '</td>' for k in ('sheet', 'id')) +
-                       '<td>' + LABELS[r['status']] + '</td><td>' + html.escape(r['detail']) + '</td></tr>' for r in records)
-        (folder / 'report.html').write_text('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>测试执行报告</title>'
-            '<style>body{font:15px system-ui;margin:32px;color:#20334c}table{border-collapse:collapse;width:100%}td,th{border:1px solid #dbe2ed;padding:9px;text-align:left;white-space:pre-wrap}th{background:#eaf1fb}input{padding:10px;width:420px}</style>'
-            '<h1>测试执行报告</h1><p>' + html.escape(run_id) + ' · ' + html.escape(context['config']['model']) +
-            ' · 眼镜：' + html.escape(context['glasses_name']) + '</p><p>结果以本报告为准。未实现、未执行等状态在 Excel 中保留为空，避免计入原模板已执行数量。</p>'
-            '<input placeholder="筛选模块、编号、状态或失败原因" oninput="document.querySelectorAll(\'tbody tr\').forEach(r=>r.hidden=!r.textContent.toLowerCase().includes(this.value.toLowerCase()))">'
-            '<table><thead><tr><th>模块</th><th>编号</th><th>状态</th><th>说明</th></tr></thead><tbody>' + rows + '</tbody></table></html>', encoding='utf-8')
+        write_report(folder, run_id, context, records, entries)
         manifest.update(state='ERROR' if fatal else 'INTERRUPTED' if stop.is_set() else 'COMPLETED',
                         finished=datetime.now().isoformat(), error=fatal)
         emit('exporting', str(folder))

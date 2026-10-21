@@ -10,7 +10,7 @@ from studio.auth import AuthPage
 from studio.devices import Adb
 from studio.errors import WaitTimeout
 from studio.home_device import HomeDevicePage
-from studio.pgyer import OVERSEAS_DOWNLOAD_PAGE, download, install, resolve_build
+from studio.pgyer import OVERSEAS_DOWNLOAD_PAGE, all_history_builds, download, install, resolve_build
 
 
 def _version(context):
@@ -48,12 +48,16 @@ def _version_key(value):
 
 
 def _older_build(context):
-    """遍历蒲公英构建详情中的历史列表，选择较低版本的 debug 包。"""
+    """从蒲公英历史表选择最接近当前版本的旧 debug 包。"""
     from studio import pgyer
     with pgyer.fetch(OVERSEAS_DOWNLOAD_PAGE) as response:
         page = response.read().decode('utf-8', errors='ignore')
-    keys = list(dict.fromkeys(re.findall(r'(?:/app/build/|data-url=["\']/)\s*([0-9a-f]{32})', page)))
     current = _version_key(_version(context))
+    older = [(key, version) for key, version, _ in all_history_builds(page, OVERSEAS_DOWNLOAD_PAGE)
+             if version.endswith('-debug') and _version_key(version) < current]
+    if older:
+        return max(older, key=lambda item: _version_key(item[1]))
+    keys = list(dict.fromkeys(re.findall(r'(?:/app/build/|data-url=["\']/)\s*([0-9a-f]{32})', page)))
     checked = set()
     while keys:
         key = keys.pop(0)
@@ -67,7 +71,24 @@ def _older_build(context):
         match = re.search(r"aVersion\s*=\s*['\"]([^'\"]+)", detail)
         if match and match.group(1).endswith('-debug') and _version_key(match.group(1)) < current:
             return key, match.group(1)
+    cached = _cached_older_build(context)
+    if cached:
+        return None, cached
     pytest.skip('蒲公英未提供低于当前输入版本的 debug 历史包，无法执行低版本覆盖安装。')
+
+
+def _cached_older_build(context, directory=None):
+    """历史页未列出旧版时，使用已下载并验证为 APK 的 debug 包。"""
+    from pathlib import Path
+    import zipfile
+    directory = Path(directory) if directory else Path(__file__).resolve().parents[2] / 'work' / 'downloads'
+    current = _version_key(_version(context))
+    versions = []
+    for path in directory.glob('VisionRay-*-Occident-debug.apk'):
+        version = path.name.removeprefix('VisionRay-').removesuffix('.apk')
+        if _version_key(version) < current and zipfile.is_zipfile(path):
+            versions.append(version)
+    return max(versions, key=_version_key) if versions else None
 
 
 def _set_time_mode(adb, serial, value):
@@ -92,7 +113,8 @@ def _set_locale(android, adb, serial, locale):
         for target in targets:
             # HyperOS 中文项以 content-desc 暴露英文名，文字节点本身不可点击。
             locator = f"//*[@text={target!r} or @content-desc={target!r}]"
-            for query in (f"{locator}[@clickable='true']", locator):
+            for query in (f"{locator}[@clickable='true']",
+                          f"{locator}/ancestor::*[@clickable='true'][1]"):
                 found = [e for e in android.driver.find_elements('xpath', query)
                          if e.is_displayed() and e.is_enabled()]
                 if len(found) == 1:
@@ -116,8 +138,13 @@ def _set_locale(android, adb, serial, locale):
     def open_language_page():
         adb.shell(serial, 'am', 'start', '-a', 'android.settings.LOCALE_SETTINGS')
         android.wait(lambda: android.driver.current_package == 'com.android.settings', '打开系统语言设置', 12)
-        if language_row():
+        # 系统设置包切到前台早于语言列表渲染；等待列表加载后再判断 Intent
+        # 是否落在设置首页，避免在 Language 页误找 General management。
+        try:
+            android.wait(language_row, '系统语言列表', 6)
             return
+        except WaitTimeout:
+            pass
         # Samsung One UI 把 LOCALE_SETTINGS 意图落在 Settings 首页，需进入常规管理。
         setting_entry(('General management', '常规管理'))
         setting_entry(('Language', '语言'))
@@ -163,7 +190,8 @@ def _assert_first_launch(android):
 def test_lower_version_cover_install(android, adb, context):
     from pathlib import Path
     key, old_version = _older_build(context)
-    apk = download(key, Path(__file__).resolve().parents[2] / 'work' / 'downloads' / f'VisionRay-{old_version}.apk')
+    apk_path = Path(__file__).resolve().parents[2] / 'work' / 'downloads' / f'VisionRay-{old_version}.apk'
+    apk = download(key, apk_path) if key else apk_path
     upgraded = False
     try:
         result = adb.run('-s', context['phone'], 'uninstall', context['config']['package'])
@@ -180,7 +208,8 @@ def test_lower_version_cover_install(android, adb, context):
         _install_current(adb, context)
         upgraded = True
         android.restart()
-        android.wait(lambda: android.find('pair.home_title'), '升级后保留已绑定首页', 20)
+        android.assert_wait(lambda: bool(android.find('pair.home_title')), True,
+                            '升级后已绑定首页状态', 20)
         assert HomeDevicePage(android).text(context['glasses_name'], 8), '升级后未保留目标眼镜'
         android.capture('upgraded-bound')
     finally:

@@ -20,6 +20,7 @@ class HomeDevicePage:
         # 每条业务用例都从已绑定首页开始。引导、型号页、Add Device 页面是前序
         # 用例正常留下的状态，统一在这里恢复，避免把前置状态误报成业务失败。
         for _ in range(6):
+            leave_failed_update(self.a)
             if self.a.find('pair.skip_title'):
                 self.a.click('pair.skip_confirm')
             elif self.a.find('pair.tutorial_begin'):
@@ -153,5 +154,5 @@ class HomeDevicePage:
             return choices[-1] if choices else None
         confirm = a.wait(confirmation, '解绑确认弹窗', 10)
         confirm.click(); a.log('unbind', 'confirmed')
-        a.wait(lambda: a.find('pair.add'), '解绑后显示 Add Device 首页', 20)
+        a.assert_wait(lambda: bool(a.find('pair.add')), True, '解绑后 Add Device 页面状态', 20)
         a.capture('unbound-home')

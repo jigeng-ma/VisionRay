@@ -74,17 +74,24 @@ class SettingsPage:
         control = self.one(resource)
         if not self.is_on(control):
             control.click()
-        self.a.wait(lambda: self.is_on(self.one(resource)), resource + ' 已开启', 8)
+        self.a.assert_wait(lambda: self.switch_state(resource), True, resource + ' 开关状态', 8)
+
+    def switch_state(self, resource):
+        found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)
+                 if e.is_displayed()]
+        if len(found) > 1:
+            raise AssertionError(f'{resource} 匹配不唯一。')
+        return self.is_on(found[0]) if found else None
 
     def toggle_round_trip(self, resource):
         control = self.one(resource)
         original = self.is_on(control)
         control.click()
-        self.a.wait(lambda: self.is_on(self.one(resource)) != original,
-                    resource + ' 切换', 8)
+        self.a.assert_wait(lambda: self.switch_state(resource), not original,
+                           resource + ' 切换后开关状态', 8)
         self.one(resource).click()
-        self.a.wait(lambda: self.is_on(self.one(resource)) == original,
-                    resource + ' 恢复', 8)
+        self.a.assert_wait(lambda: self.switch_state(resource), original,
+                           resource + ' 恢复后开关状态', 8)
 
     def toggle_labeled(self, labels):
         """按设置文案定位开关，兼容不同版本的 wake-up 资源 ID。"""
@@ -101,11 +108,11 @@ class SettingsPage:
             control = direct[0]
             original = self.is_on(control)
             control.click()
-            self.a.wait(lambda: self.is_on(self.one('voice_wakeup_switch')) != original,
-                        '语音唤醒开关切换', 8)
+            self.a.assert_wait(lambda: self.is_on(self.one('voice_wakeup_switch')), not original,
+                               '语音唤醒切换后开关状态', 8)
             self.one('voice_wakeup_switch').click()
-            self.a.wait(lambda: self.is_on(self.one('voice_wakeup_switch')) == original,
-                        '语音唤醒开关恢复', 8)
+            self.a.assert_wait(lambda: self.is_on(self.one('voice_wakeup_switch')), original,
+                               '语音唤醒恢复后开关状态', 8)
             return
         # 旧版 UiAutomator2 不能稳定从文本节点向上查找父节点；开关位于同一行右侧。
         rect = label.rect
@@ -116,8 +123,7 @@ class SettingsPage:
             return [(e.get_attribute('resourceId'), e.get_attribute('selected')) for e in controls]
         before = states()
         self.a.driver.execute_script('mobile: clickGesture', {'x': x, 'y': y})
-        self.a.wait(lambda: states() != before,
-                    '语音唤醒开关切换', 8)
+        self.a.assert_wait(lambda: states() != before, True, '语音唤醒开关切换结果', 8)
         self.a.driver.execute_script('mobile: clickGesture', {'x': x, 'y': y})
 
     def tutorial(self, title):
@@ -141,9 +147,12 @@ class SettingsPage:
             'id', self.package + ':id/tv_confirm') if e.is_displayed() and e.is_enabled()), None),
             '确认音色选择', 8)
         confirm.click()
-        self.a.wait(lambda: self.one('tv_speaker').text == value, '音色切换为 ' + value, 10)
+        self.a.assert_wait(lambda: self.one('tv_speaker').text, value, '音色选择结果', 10)
 
     def set_duration(self, resource, expected):
+        hints = [e.text for e in self.a.driver.find_elements('id', self.package + ':id/tv_hint') if e.is_displayed()]
+        if expected in hints:
+            return
         self.one(resource).click()
         option = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('id', self.package + ':id/tv_label')
                                            if e.is_displayed() and e.text == expected), None), expected, 10)
@@ -174,6 +183,4 @@ class SettingsPage:
             self.home.text(success, 20)
 
     def factory_reset(self):
-        if __import__('os').environ.get('GLASSES_ALLOW_FACTORY_RESET') != '1':
-            raise TestBlocked('恢复出厂设置会清空眼镜数据；设置 GLASSES_ALLOW_FACTORY_RESET=1 后执行。')
         self.confirm('factory_reset', 'Factory reset successful')

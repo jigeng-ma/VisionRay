@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from studio.firmware_ota import FirmwareUpdatePage, leave_failed_update
+from studio.firmware_ota import FirmwareUpdatePage, firmware_version, leave_failed_update
 
 
 class FirmwareRecoveryTests(unittest.TestCase):
@@ -57,3 +57,13 @@ def test_firmware_entry_clicks_whole_row_and_confirms_page_transition():
         FirmwareUpdatePage(android).open()
     row.click.assert_called_once_with()
     android.capture.assert_called_once_with('firmware-update-page')
+
+
+def test_wifi_version_reads_wifi_row_instead_of_bluetooth_row():
+    android = Mock(context={'config': {'package': 'test.app'}})
+    value = Mock(text='1.00.29')
+    value.is_displayed.return_value = True
+    android.driver.find_elements.side_effect = lambda by, locator: [value] if 'wifi_sw_version' in locator else []
+    with patch('studio.firmware_ota.HomeDevicePage'):
+        assert firmware_version(android, 'wifi') == '1.00.29'
+    android.log.assert_called_once_with('firmware-version', {'firmware': 'wifi', 'version': '1.00.29'})

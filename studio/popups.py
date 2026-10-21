@@ -17,7 +17,7 @@ class PopupGuard:
 
     def _allow_system_permission(self, texts, packages):
         """允许 VisionRay 首次功能使用所需的 Android 系统权限，并选择最大授权范围。"""
-        if not any('Allow VisionRay to' in text for text in texts):
+        if not any('Allow VisionRay to' in text or '允许“VisionRay”' in text for text in texts):
             return False
         if not any(package == 'android' or package.endswith('.permissioncontroller') for package in packages if package):
             return False
@@ -28,7 +28,8 @@ class PopupGuard:
             precise = [e for e in a.driver.find_elements('xpath', "//*[@text='Precise']") if e.is_displayed() and e.is_enabled()]
             if len(precise) == 1:
                 precise[0].click()
-        preferred = ('Allow all',) if 'photos and videos' in joined else ('Allow', 'While using the app')
+        preferred = ('Allow all', '允许访问所有照片') if 'photos and videos' in joined or '照片和视频' in joined else (
+            'Allow', 'While using the app', '允许', '使用应用时允许')
         for text in preferred:
             buttons = [e for e in a.driver.find_elements('xpath', f"//*[@text={text!r}]") if e.is_displayed() and e.is_enabled()]
             if len(buttons) == 1:
@@ -68,6 +69,17 @@ class PopupGuard:
             return True
         if self._allow_system_permission(texts, packages):
             return True
+        # 上一条配对用例失败后，APP 会把 Binding Failed 底部弹窗保留到下一条。
+        # 配对进行中应由配对用例判断失败；其他用例先清理遗留弹窗。
+        package = a.context['config']['package']
+        if not self.pairing_active and 'Binding Failed' in texts:
+            buttons = [e for e in a.driver.find_elements('id', package + ':id/btn_primary')
+                       if e.is_displayed() and e.is_enabled() and e.text == 'OK']
+            if len(buttons) == 1:
+                a.capture('stale-binding-failed')
+                buttons[0].click()
+                a.log('popup', 'stale_binding_failed')
+                return True
         rules = a.context['config'].get('popup_rules', [])
         for rule in rules:
             kind = rule['name']

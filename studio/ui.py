@@ -47,10 +47,12 @@ class App(tk.Tk):
         self.events = queue.Queue()
         self.stop_event = threading.Event()
         self.busy = False
+        self.running = False
         self.modules = {}
         self.selected = set()
         self.failure_details = {}
         self.devices_by_label = {}
+        self.device_scan_pending = False
         self.current_folder = None
         self.total = self.completed = self.passed = self.failed = 0
         self.blocked = self.unimplemented = self.not_applicable = self.skipped = self.interrupted = 0
@@ -76,6 +78,7 @@ class App(tk.Tk):
                     self.product, self.model, self.header, self.id_col, self.result_col, self.app_version):
             var.trace_add('write', self.save_state)
         self.after(100, self.poll)
+        self.after(3000, self.watch_devices)
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.refresh_devices()
         if self.path.get() and Path(self.path.get()).is_file():
@@ -217,6 +220,9 @@ class App(tk.Tk):
         footer.pack(fill='x', pady=(8, 4))
         self.start_button = self.button(footer, '开始执行', self.start, style='Accent.TButton')
         self.start_button.pack(side='left')
+        # 屏保/锁屏后按 Enter 唤醒电脑时，按钮可能仍持有焦点。
+        self.start_button.bind('<Return>', lambda _event: 'break')
+        self.start_button.bind('<KP_Enter>', lambda _event: 'break')
         self.stop_button = ttk.Button(footer, text='停止执行', command=self.stop, state='disabled')
         self.stop_button.pack(side='left', padx=6)
         ttk.Button(footer, text='打开结果目录', command=self.open_results).pack(side='right')
@@ -258,6 +264,8 @@ class App(tk.Tk):
         return box
 
     def set_busy(self, busy):
+        if self.running and not busy:
+            return
         self.busy = busy
         for widget, state in self.controls:
             widget.configure(state='disabled' if busy else state)
@@ -307,6 +315,36 @@ class App(tk.Tk):
     def refresh_devices(self):
         self.status.set('正在扫描 ADB 设备…')
         self.background('devices', lambda: Adb().devices())
+
+    def watch_devices(self):
+        """热插拔后刷新设备列表，不打断正在执行的用例或用户操作。"""
+        if not self.busy and not self.running and not self.device_scan_pending:
+            self.device_scan_pending = True
+            def scan():
+                try:
+                    self.events.put(('devices_auto', Adb().devices()))
+                except Exception:
+                    self.device_scan_pending = False
+            threading.Thread(target=scan, daemon=True).start()
+        self.after(3000, self.watch_devices)
+
+    def show_devices(self, devices, automatic=False):
+        old = self.devices_by_label
+        selected = [(box, var, old.get(var.get())) for box, var in
+                    ((self.phone_box, self.phone), (self.glasses_box, self.glasses))]
+        updated = {d.label: d for d in devices}
+        changed = set(updated) != set(old)
+        self.devices_by_label = updated
+        for box, var, previous in selected:
+            box['values'] = list(updated) + ([BLUETOOTH_ONLY] if box is self.glasses_box else [])
+            if previous:
+                match = next((label for label, device in updated.items()
+                              if device.serial == previous.serial), '')
+                var.set(match)
+            elif var.get() not in box['values']:
+                var.set('')
+        if changed or not automatic:
+            self.status.set(f'发现 {len(devices)} 台设备，请分别选择手机与眼镜。')
 
     def change_product(self, event=None):
         choices = list(self.data['products'][self.product.get()]['models'])
@@ -430,6 +468,8 @@ class App(tk.Tk):
                                                 if count or label in ('待执行', '通过', '失败')))
 
     def start(self):
+        if self.busy or self.running:
+            return
         try:
             context, mapping = self.context(), self.mapping()
             entered_version = self.app_version.get().strip()
@@ -455,6 +495,7 @@ class App(tk.Tk):
         self.stop_event.clear()
         self.stop_button.configure(state='normal')
         self.status.set('执行前检查与保存本轮输入…')
+        self.running = True
         self.background('done', lambda: execute(self.root_dir, source, mapping, selected, context,
                             self.stop_event, lambda kind, value: self.events.put((kind, value))))
 
@@ -499,15 +540,14 @@ class App(tk.Tk):
             # 限制每轮消息处理量，几千条快速结果也不会饿死窗口事件循环。
             for _ in range(100):
                 kind, value = self.events.get_nowait()
-                if kind in ('loaded', 'devices', 'preflight', 'done', 'error', 'reexport', 'service'):
+                if kind in ('done', 'error'):
+                    self.running = False
+                if kind == 'devices_auto':
+                    self.device_scan_pending = False
+                if kind in ('loaded', 'devices', 'done', 'error', 'reexport', 'service'):
                     self.set_busy(False)
-                if kind == 'devices':
-                    self.devices_by_label = {d.label: d for d in value}
-                    for box, var in [(self.phone_box, self.phone), (self.glasses_box, self.glasses)]:
-                        box['values'] = list(self.devices_by_label) + ([BLUETOOTH_ONLY] if box is self.glasses_box else [])
-                        if var.get() not in box['values']:
-                            var.set('')
-                    self.status.set(f'发现 {len(value)} 台设备，请分别选择手机与眼镜。')
+                if kind in ('devices', 'devices_auto'):
+                    self.show_devices(value, automatic=kind == 'devices_auto')
                 elif kind == 'loaded':
                     self.modules, entries, self.loaded_mapping, self.loaded_hash = value
                     self.selected = set(self.saved_state.get('selected', ())) & set(self.modules)

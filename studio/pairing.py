@@ -12,6 +12,44 @@ class PairingPage:
         self.a = android
         self.options = android.context['config']['pairing']
 
+    def _swipe_models(self, upward):
+        try:
+            size = self.a.driver.get_window_size()
+            x = int(size['width'] * .50)
+            start, end = (.28, .78) if upward else (.78, .28)
+            self.a.driver.swipe(x, int(size['height'] * start), x,
+                                int(size['height'] * end), 500)
+        except (KeyError, TypeError):
+            self.a.driver.execute_script('mobile: scrollGesture',
+                                         {'direction': 'up' if upward else 'down', 'percent': .75})
+        time.sleep(.3)
+
+    def _model_names(self):
+        """Read the complete model list, including items outside the viewport."""
+        names = set()
+        # Android retains the previous scroll offset when revisiting this page.
+        self._scroll_models_top()
+        for _ in range(self.options.get('max_scrolls', 12) + 1):
+            visible = tuple(e.text for e in self.a.driver.find_elements(
+                'id', self.options['model_label_id']) if e.is_displayed())
+            names.update(visible)
+            self._swipe_models(False)
+            after = tuple(e.text for e in self.a.driver.find_elements(
+                'id', self.options['model_label_id']) if e.is_displayed())
+            if after == visible:
+                break
+        return names
+
+    def _scroll_models_top(self):
+        for _ in range(self.options.get('max_scrolls', 12)):
+            before = tuple(e.text for e in self.a.driver.find_elements(
+                'id', self.options['model_label_id']) if e.is_displayed())
+            self._swipe_models(True)
+            after = tuple(e.text for e in self.a.driver.find_elements(
+                'id', self.options['model_label_id']) if e.is_displayed())
+            if after == before:
+                break
+
     def enable_g_series_models(self):
         """按新版 UI 的隐藏入口启用 G1/G3/G6 型号。"""
         a = self.a
@@ -32,7 +70,7 @@ class PairingPage:
             tabs[0].click()
             a.click('pair.add')
         a.element('pair.models_title', 12)
-        names = {e.text for e in a.driver.find_elements('id', self.options['model_label_id']) if e.is_displayed()}
+        names = self._model_names()
         a.driver.press_keycode(4)
         a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
         if {'DPVR G1', 'DPVR G3', 'DPVR G6'} <= names:
@@ -62,6 +100,8 @@ class PairingPage:
     def select_model(self, label, retry=True):
         a = self.a
         a.element('pair.models_title')
+        # Always search from the top; the view can reopen at its previous offset.
+        self._scroll_models_top()
         labels = {label, label.removeprefix('DPVR ')}
         seen = set()
         for attempt in range(self.options['max_scrolls'] + 1):
@@ -148,7 +188,20 @@ class PairingPage:
             if len(found) > 1:
                 raise TestBlocked('搜索到多个同名设备，无法唯一确认本轮眼镜。')
             return found[0] if found else None
-        device = a.wait(target, '搜索目标眼镜 ' + name, self.options['search_timeout'])
+        try:
+            device = a.wait(target, '搜索目标眼镜 ' + name, self.options['search_timeout'])
+        except WaitTimeout:
+            retry = [e for e in a.driver.find_elements('xpath', "//*[@text='Retry']")
+                     if e.is_displayed() and e.is_enabled()]
+            source = a.driver.page_source
+            if len(retry) != 1 or "Couldn't find" not in source:
+                raise
+            a.log('pair-search-retry', name)
+            retry[0].click()
+            try:
+                device = a.wait(target, '重搜目标眼镜 ' + name, self.options['search_timeout'])
+            except WaitTimeout as exc:
+                raise TestBlocked(f'APP 连续两次搜索不到目标眼镜 {name}；请确认眼镜仍处于可被发现状态。') from exc
         a.capture('target-found')
         a.popups.pairing_active = True
         try:
@@ -160,13 +213,19 @@ class PairingPage:
             except AssertionError:
                 if not a.find('pair.binding_failed'):
                     raise
-                # APP 明确要求等待一分钟再试；只按其提示重试一次，仍失败则保留失败。
+                message = [e.text for e in a.driver.find_elements('id',
+                    a.context['config']['package'] + ':id/tv_message') if e.is_displayed()]
+                buttons = [e for e in a.driver.find_elements('id',
+                    a.context['config']['package'] + ':id/btn_primary') if e.is_displayed()]
+                retry = [e for e in buttons if e.text == 'Retry']
+                if len(retry) != 1:
+                    if len(buttons) == 1 and buttons[0].text == 'OK':
+                        buttons[0].click()
+                    raise AssertionError('APP 绑定失败：' +
+                                         ('；'.join(message) if message else '未提供具体原因'))
+                # 仅对实际显示 Retry 的弹窗按 APP 提示等待一分钟后重试。
                 a.log('pair-retry', 'Binding Failed 后等待 70 秒')
                 time.sleep(70)
-                retry = [e for e in a.driver.find_elements('id', a.context['config']['package'] + ':id/btn_primary')
-                         if e.is_displayed() and e.text == 'Retry']
-                if len(retry) != 1:
-                    raise AssertionError('Binding Failed 弹窗缺少唯一 Retry 按钮。')
                 retry[0].click()
                 next_step = a.wait(lambda: target() or self.on_tutorial() or self.on_target_home(),
                                    '重试后搜索或绑定目标眼镜 ' + name, self.options['search_timeout'])
@@ -183,7 +242,7 @@ class PairingPage:
         def binding_result():
             if a.find('pair.binding_failed'):
                 a.capture('binding-failed')
-                raise AssertionError('APP 提示 Binding Failed：Please wait a minute and retry。刚解绑后设备可能尚未就绪。')
+                raise AssertionError('APP 提示 Binding Failed。')
             return self.on_tutorial() or (self.options.get('skip_tutorial') and self.on_target_home())
         a.wait(binding_result,
                '绑定后进入使用引导或所选跳过路径的首页', self.options['bind_timeout'])
@@ -192,7 +251,7 @@ class PairingPage:
             # 旧版 APP 可能先显示引导页，数秒后才弹 Android 蓝牙配对框。
             # 先处理配对框，再点 Skip，避免确认框打断跳过流程并退回型号页。
             started = time.monotonic()
-            grace = 5 if not self.options.get('require_pairing_prompt', True) else self.options['late_popup_timeout']
+            grace = self.options['optional_observation_seconds']
             def pairing_settled():
                 if a.find('pair.models_title'):
                     raise BindingReturnedToModels('蓝牙配对确认期间返回型号选择页，目标眼镜绑定未完成。')
@@ -244,7 +303,8 @@ class PairingPage:
             elapsed = time.monotonic() - started
             if a.popups.pairing_accepted:
                 return on_tutorial and elapsed >= 5
-            return on_tutorial and not required and elapsed >= self.options['optional_observation_seconds']
+            # Android 对已经配对的设备不会再次弹系统确认框；目标页面稳定即可完成。
+            return on_tutorial and elapsed >= self.options['optional_observation_seconds']
         a.wait(complete, '确认延迟蓝牙配对弹窗并到达本轮指定页面', self.options['late_popup_timeout'])
 
     def run(self):

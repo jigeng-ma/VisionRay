@@ -29,12 +29,20 @@ def _manual_update(android, firmware):
     page = FirmwareUpdatePage(android)
     page.open()
     page.start()
-    page.wait_for_completion(target["version"], before, direction)
+    page.wait_for_completion(target["version"], before, direction, firmware=firmware)
 
 
 def _startup_update(android, firmware, mandatory):
     before, target, direction = choose_target(android, firmware)
     prepare_target(target["task_id"], mandatory=mandatory)
+    if not mandatory:
+        # 非强制提示通常只在新装 APP 登录并重新绑定眼镜后触发。
+        from studio.auth import AuthPage, install_auth_variant
+        from studio.home_device import HomeDevicePage
+        install_auth_variant(android, android.context, 'debug')
+        android.ensure_foreground()
+        AuthPage(android).registered()
+        HomeDevicePage(android).home()
     _restart_app(android)
     page = FirmwareUpdatePage(android)
     try:
@@ -43,7 +51,7 @@ def _startup_update(android, firmware, mandatory):
         if mandatory:
             raise
         raise AssertionError("非强制升级弹窗未出现；请检查启动时弹窗证据。")
-    page.wait_for_completion(target["version"], before, direction)
+    page.wait_for_completion(target["version"], before, direction, firmware=firmware)
 
 
 def test_bluetooth_firmware_update(android):

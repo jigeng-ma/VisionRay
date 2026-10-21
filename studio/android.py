@@ -1,6 +1,7 @@
 import time
 import json
 import os
+import operator
 from pathlib import Path
 from .errors import TestBlocked, WaitTimeout
 from .popups import PopupGuard
@@ -45,7 +46,13 @@ class Android:
                 # 启动器会先短暂显示 SplashActivity；它结束前不能开始找业务元素，
                 # 否则部分机型会在初始化后回到桌面而产生“启动成功”的假象。
                 current = [line for line in output.splitlines() if 'mCurrentFocus' in line]
+                if any('permissioncontroller' in line.lower() for line in current):
+                    if self.popups.handle():
+                        return False
                 if any('NotificationShade' in line for line in current):
+                    # 长轮次中手机可能已熄屏；仅收起通知栏不足以离开锁屏。
+                    adb.shell(phone, 'input', 'keyevent', '224')  # KEYCODE_WAKEUP
+                    adb.shell(phone, 'wm', 'dismiss-keyguard')
                     adb.shell(phone, 'cmd', 'statusbar', 'collapse')
                     return False
                 if any(package in line and 'SplashActivity' not in line for line in current):
@@ -143,6 +150,21 @@ class Android:
         except Exception:
             self.capture('wait-failed')
             raise
+
+    def assert_wait(self, read, expected, label, timeout=10, compare=operator.eq):
+        """等待业务结果；到期后复读实际值并报告断言差异。"""
+        actual = None
+        def matches():
+            nonlocal actual
+            actual = read()
+            return compare(actual, expected)
+        try:
+            self.wait(matches, label, timeout)
+        except WaitTimeout:
+            actual = read()
+            if not compare(actual, expected):
+                raise AssertionError(f'{label}未达预期：期望 {expected}，实际 {actual}（等待 {timeout} 秒）。') from None
+        return actual
 
     def element(self, key, timeout=10):
         return self.wait(lambda: self.find(key), key, timeout)

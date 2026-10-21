@@ -291,10 +291,12 @@ class RegistrationCodeReuseTests(unittest.TestCase):
 
     def test_used_code_case_reuses_code_without_requesting_email(self):
         page = Mock()
-        page.has.side_effect = [False, True, True]
-        page.el.side_effect = lambda key: Mock(text=test_auth.EMAIL if key == 'tv_summary' else 'Incorrect verification code')
+        page.a = Mock(unsafe=True)
+        page.has.side_effect = lambda key: key == 'tvDesc'
+        page.el.side_effect = lambda key: Mock(text=test_auth.EMAIL if key in ('tv_summary', 'hint')
+                                               else 'Incorrect verification code')
         test_auth.run_case(page, 39, '123456')
-        page.d.back.assert_called_once_with()
+        page.start_delete_code.assert_called_once_with()
         page.enter_code.assert_called_once_with('123456')
         page.code_page.assert_not_called()
         page.resend_code.assert_not_called()
@@ -303,11 +305,14 @@ class RegistrationCodeReuseTests(unittest.TestCase):
                 test_auth.save_used_code('123456', test_auth.time.time())
                 self.assertEqual(test_auth.load_used_code(), '123456')
 
-    def test_used_code_case_blocks_when_registration_page_is_gone(self):
+    def test_used_code_case_fails_if_delete_accepts_old_code(self):
         page = Mock()
-        page.has.return_value = False
-        with self.assertRaisesRegex(TestBlocked, '未保留验证码页'):
+        page.a = Mock(unsafe=True)
+        page.has.side_effect = lambda key: key == 'tabIcon'
+        page.el.return_value.text = test_auth.EMAIL
+        with self.assertRaisesRegex(AssertionError, '账号已注销'):
             test_auth.run_case(page, 39, '123456')
+        page.start_delete_code.assert_called_once_with()
         page.code_page.assert_not_called()
         page.resend_code.assert_not_called()
 

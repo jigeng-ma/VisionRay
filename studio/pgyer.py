@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+from html import unescape
 from http.cookiejar import CookieJar
+import json
 import re
 import subprocess
 import time
 import zipfile
 from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 OVERSEAS_DOWNLOAD_PAGE = "https://www.pgyer.com/visionray-android-5"
@@ -73,12 +76,67 @@ def download(build_key: str, target: Path) -> Path:
     return target
 
 
+def history_builds(page: str) -> list[tuple[str, str, str]]:
+    """Read build key, version and build number from Pgyer's public history rows."""
+    found = []
+    for key, row in re.findall(r'<tr\b[^>]*\bappkey=["\']([0-9a-f]{32})["\'][^>]*>(.*?)</tr>',
+                               page, re.I | re.S):
+        cell = re.search(r'<td\b[^>]*class=["\'][^"\']*\bversion\b[^"\']*["\'][^>]*>(.*?)</td>',
+                         row, re.I | re.S)
+        if not cell:
+            continue
+        label = unescape(re.sub(r'<[^>]+>', ' ', cell.group(1)))
+        version = re.search(r'\b\d+\.\d+\.\d+-Occident(?:-debug)?\b', label)
+        build = re.search(r'\bbuild\s+(\d+)\b', label, re.I)
+        if version:
+            found.append((key, version.group(), build.group(1) if build else ''))
+    return found
+
+
+def all_history_builds(page: str, source: str):
+    """Include the older pages loaded by Pgyer's '查看更多' button."""
+    yield from history_builds(page)
+    if 'id="ajaxMore"' not in page:
+        return
+    key = re.search(r'\baKey\s*=\s*["\']([^"\']+)', page)
+    channel = re.search(r'\bchannelId\s*=\s*(\d+)', page)
+    if not key or not channel:
+        raise RuntimeError('蒲公英历史版本分页参数缺失。')
+    for number in range(1, 101):
+        data = urlencode({'page': number, 'aKey': key.group(1), 'channelId': channel.group(1)}).encode()
+        request = Request('https://www.pgyer.com/app/loadOtherApps', data=data,
+                          headers={**HEADERS, 'X-Requested-With': 'XMLHttpRequest', 'Referer': source})
+        with OPENER.open(request, timeout=30) as response:
+            result = json.load(response)
+        if result.get('code') != 0:
+            raise RuntimeError('蒲公英历史版本分页请求失败：' + str(result.get('message', '未知错误')))
+        extra = result.get('extra') or {}
+        for item in extra.get('list') or []:
+            version = item.get('a_version', '')
+            build_key = item.get('a_key', '')
+            if re.fullmatch(r'[0-9a-f]{32}', build_key) and version:
+                yield build_key, version, str(item.get('getBuildVersion', ''))
+        if number >= int(extra.get('pageCount') or 1):
+            return
+    raise RuntimeError('蒲公英历史版本分页超过 100 页。')
+
+
 def resolve_build(source: str, version: str | None, build: str | None, variant: str | None = None) -> str:
     """Resolve a public Pgyer app page to its build key."""
     if re.fullmatch(r"[0-9a-f]{32}", source):
         return source
     with fetch(source) as response:
         page = response.read().decode("utf-8", errors="ignore")
+    for key, found_version, found_build in all_history_builds(page, source):
+        if version and found_version != version:
+            continue
+        if build and found_build != build:
+            continue
+        if variant == 'debug' and not found_version.endswith('-debug'):
+            continue
+        if variant == 'release' and found_version.endswith('-debug'):
+            continue
+        return key
     keys = list(dict.fromkeys(re.findall(r"(?:/app/build/|data-url=[\"']/)([0-9a-f]{32})", page)))
     if not keys:
         raise RuntimeError("No Pgyer builds were found on the supplied download page.")
@@ -113,8 +171,23 @@ def resolve_build(source: str, version: str | None, build: str | None, variant: 
     raise RuntimeError("No Pgyer build matched the supplied version/build value.")
 
 
-def install(serial: str, apk: Path) -> str:
-    result = subprocess.run(["adb", "-s", serial, "install", "-r", str(apk)], text=True, capture_output=True, check=False)
+def install(serial: str, apk: Path, package: str | None = None) -> str:
+    """Install an APK; supplying a package performs a fresh install for a test run."""
+    if package:
+        current = subprocess.run(["adb", "-s", serial, "shell", "pm", "path", package],
+                                 text=True, capture_output=True, check=False)
+        # `pm path` returns 1 with no output when the package is not installed.
+        if current.returncode and (current.stdout.strip() or current.stderr.strip()):
+            raise RuntimeError('检查当前 APP 安装状态失败：' + current.stdout + current.stderr)
+        if 'package:' in current.stdout:
+            removed = subprocess.run(["adb", "-s", serial, "uninstall", package],
+                                     text=True, capture_output=True, check=False)
+            if removed.returncode or 'Success' not in removed.stdout:
+                raise RuntimeError('卸载当前 APP 失败：' + removed.stdout + removed.stderr)
+    args = ["adb", "-s", serial, "install"]
+    if not package:
+        args.append("-r")
+    result = subprocess.run([*args, str(apk)], text=True, capture_output=True, check=False)
     if result.returncode or "Success" not in result.stdout:
         raise RuntimeError(result.stdout + result.stderr)
     return result.stdout.strip()

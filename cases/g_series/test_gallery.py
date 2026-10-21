@@ -1,6 +1,6 @@
 """G04 媒资导入、G05 空间。缺少原表指定媒资时明确阻塞。"""
 import pytest
-from studio.errors import TestBlocked
+from studio.errors import TestBlocked, WaitTimeout
 from studio.gallery import GalleryPage
 from studio.ble_commands import BleMediaCommands
 
@@ -23,11 +23,18 @@ def prepare_three_pending_media(page):
     """每种媒体各产生一条，并在每一步校验首页与空间页卡片的累加数量。"""
     media = BleMediaCommands(page.a)
     baseline = page.pending_count_or_zero('home')
-    for expected, action in enumerate((media.take_photo, media.record_video, media.record_audio), baseline + 1):
+    for expected, (kind, action) in enumerate((('拍照', media.take_photo), ('录像', media.record_video),
+                                               ('录音', media.record_audio)), baseline + 1):
         action()
         # 新拍摄文件同步到首页通知前，首页不存在通知是正常中间状态，不能把它
         # 当成前置阻塞；出现后才做严格的跨页面数量断言。
-        page.a.wait(lambda: page.pending_count_or_zero('home') == expected, '首页待导入媒资数量更新', 60)
+        try:
+            page.a.wait(lambda: page.pending_count_or_zero('home') == expected, '首页待导入媒资数量更新', 60)
+        except WaitTimeout:
+            home = page.pending_count_or_zero('home')
+            gallery = page.pending_count_or_zero('gallery')
+            raise AssertionError(f'{kind}后待导入媒资数量未按预期增加：期望 {expected}，'
+                                 f'首页实际 {home}、空间页实际 {gallery}。') from None
         page.assert_pending_counts(expected)
     return baseline + 3
 
@@ -82,9 +89,9 @@ def prepare_new_imported_media(gallery, kind, duration=15):
         command.take_photo()
     else:
         command.record_video(duration=duration)
-    gallery.a.wait(lambda: gallery.pending_count_or_zero('home') >= before + 1,
-                   f'BLE {"录像" if kind == "video" else "拍照"}后首页待导入媒资从 {before} 增至 {before + 1}',
-                   120 if kind == 'video' else 60)
+    gallery.a.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
+                          f'BLE {"录像" if kind == "video" else "拍照"}后首页待导入媒资数量',
+                          120 if kind == 'video' else 60, lambda actual, expected: actual >= expected)
     gallery.import_from('home')
     gallery.preview_latest(kind)
 

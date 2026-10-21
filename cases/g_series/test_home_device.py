@@ -81,5 +81,8 @@ def test_visual_search(android):
     p=page(android); p.card('Visual Search')
     android.wait(lambda: android.driver.current_activity.endswith('AIConversationActivity'), '拍照识图会话页', 35)
     answers=[e for e in android.driver.find_elements('id', p.package + ':id/tv_ai') if e.is_displayed() and e.text.strip()]
-    if not answers: android.wait(lambda: any(e.is_displayed() and e.text.strip() for e in android.driver.find_elements('id', p.package + ':id/tv_ai')), 'AI 识图回答', 50)
+    if not answers:
+        android.assert_wait(lambda: sum(bool(e.is_displayed() and e.text.strip()) for e in
+                                       android.driver.find_elements('id', p.package + ':id/tv_ai')),
+                            1, 'AI 识图回答数量', 50, lambda actual, expected: actual >= expected)
     android.capture('visual-search-result')

@@ -4,9 +4,25 @@ import unittest
 from unittest.mock import Mock, patch
 from studio.auth import AuthPage, EMAIL, PASSWORD, ROOT, alternate_password, save_password
 from studio.errors import TestBlocked, WaitTimeout
+from cases.g_series.test_auth import run_case
 
 
 class AuthSafetyTests(unittest.TestCase):
+    def test_used_registration_code_on_delete_must_be_rejected(self):
+        page = Mock()
+        page.a = Mock(unsafe=True)
+        page.has.side_effect = lambda key: key == 'tvDesc'
+        page.el.side_effect = lambda key: Mock(text={
+            'tv_summary': EMAIL, 'tv_title': 'Incorrect verification code',
+            'tvDesc': 'The code is invalid', 'hint': EMAIL}[key])
+        run_case(page, 39, '123456')
+        page.start_delete_code.assert_called_once()
+        page.enter_code.assert_called_once_with('123456')
+
+        page.has.side_effect = lambda key: key == 'tabIcon'
+        with self.assertRaisesRegex(AssertionError, '账号已注销'):
+            run_case(page, 39, '123456')
+
     def page(self):
         with patch('studio.auth.VerificationMailbox'):
             page = AuthPage(Mock(context={'config': {'package': 'test'}}))

@@ -1,8 +1,12 @@
 import unittest
 from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from zipfile import ZipFile
 
-from cases.g_series.test_foundation import _assert_first_launch, _older_build, _set_locale, test_lower_version_cover_install as cover_install_case
+from cases.g_series.test_foundation import _assert_first_launch, _cached_older_build, _older_build, _set_locale, test_lower_version_cover_install as cover_install_case
+from studio.pgyer import history_builds
 from studio.errors import WaitTimeout
 
 
@@ -67,11 +71,12 @@ class FoundationTests(unittest.TestCase):
     def test_lower_version_is_fresh_installed_before_upgrade(self):
         context = {'phone': 'phone', 'config': {'package': 'visionray'},
                    'glasses_name': 'G1', 'app_version': '1.2.41-debug'}
-        android, adb = Mock(), Mock()
+        android, adb = Mock(unsafe=True), Mock()
         adb.run.return_value = 'Success'
         adb.shell.return_value = 'versionName=1.2.40-debug'
         android.find.return_value = True
         android.wait.side_effect = lambda predicate, *_: predicate()
+        android.assert_wait.side_effect = lambda read, *_: read()
         with patch('cases.g_series.test_foundation._older_build', return_value=('build', '1.2.40-debug')), patch(
             'cases.g_series.test_foundation.download', return_value='old.apk'
         ), patch('cases.g_series.test_foundation._install_current') as install_current, patch(
@@ -155,9 +160,24 @@ class FoundationTests(unittest.TestCase):
             f'https://www.pgyer.com/app/build/{same_version}': "aVersion = '1.2.41-Occident-debug'",
             f'https://www.pgyer.com/app/build/{older}': "aVersion = '1.2.40-Occident-debug'",
         }
-        with patch('studio.pgyer.fetch', side_effect=lambda url: BytesIO(pages[url].encode())):
+        with patch('cases.g_series.test_foundation._cached_older_build', return_value=None), \
+             patch('studio.pgyer.fetch', side_effect=lambda url: BytesIO(pages[url].encode())):
             self.assertEqual(_older_build({'app_version': '1.2.41-Occident-debug'}),
                              (older, '1.2.40-Occident-debug'))
+
+    def test_cached_older_debug_build_chooses_nearest_valid_apk(self):
+        with TemporaryDirectory() as folder:
+            for version in ('1.2.39', '1.2.41', '1.2.43'):
+                with ZipFile(Path(folder) / f'VisionRay-{version}-Occident-debug.apk', 'w') as apk:
+                    apk.writestr('AndroidManifest.xml', 'test')
+            self.assertEqual(_cached_older_build({'app_version': '1.2.42-Occident-debug'}, folder),
+                             '1.2.41-Occident-debug')
+
+    def test_pgyer_history_rows_include_build_keys(self):
+        page = '''<tr appkey="f8471072287fe975a5b5bb5f25d20119" class="history_row">
+            <td class="history-item version">1.2.41-Occident-debug (build 124)</td></tr>'''
+        self.assertEqual(history_builds(page),
+                         [('f8471072287fe975a5b5bb5f25d20119', '1.2.41-Occident-debug', '124')])
 
     def test_hyperos_language_row_is_clicked_directly(self):
         android = _Android()

@@ -7,6 +7,7 @@ __pycache__/
 *.py[cod]
 bin/
 bin_fixed/
+bin_current/
 outputs/
 runs/
 work/

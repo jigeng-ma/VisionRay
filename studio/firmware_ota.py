@@ -32,34 +32,30 @@ def _target(android, firmware: str, direction: str) -> dict:
     return dict(node, firmware=firmware, direction=direction, model=model)
 
 
-def firmware_version(android) -> str:
-    """从 System Settings 读取当前连接眼镜的实际固件版本。"""
+def firmware_version(android, firmware='bluetooth') -> str:
+    """从 System Settings 的对应固件行读取实际版本。"""
     page = HomeDevicePage(android)
     page.setting("System Settings")
-    # 系统设置页会保留上一条用例的滚动位置，先回到包含基础版本信息的顶部。
-    for _ in range(5):
-        labels = [e for e in android.driver.find_elements('id', page.package + ':id/tv_title') if e.is_displayed()]
-        if any(label.text == 'Firmware Version' for label in labels):
-            break
+    row_id = 'wifi_sw_version' if firmware == 'wifi' else 'firmware_version'
+    locator = (f"//*[@resource-id='{page.package}:id/{row_id}']"
+               f"//*[@resource-id='{page.package}:id/tv_hint']")
+    # 该页可能保留滚动位置，先向上找蓝牙版本，再向下找 Wi-Fi 版本。
+    for _ in range(8):
+        values = [e for e in android.driver.find_elements('xpath', locator) if e.is_displayed()]
+        if len(values) == 1 and values[0].text.strip():
+            version = values[0].text.strip()
+            android.log('firmware-version', {'firmware': firmware, 'version': version})
+            return version
         size = android.driver.get_window_size()
-        android.driver.swipe(size['width'] // 2, int(size['height'] * .30),
-                             size['width'] // 2, int(size['height'] * .82), 400)
-    labels = [e for e in android.driver.find_elements('id', page.package + ':id/tv_title') if e.is_displayed()]
-    indexes = [index for index, label in enumerate(labels) if label.text == 'Firmware Version']
-    if len(indexes) != 1:
-        raise TestBlocked("系统设置页未唯一找到 Firmware Version。")
-    values = [e for e in android.driver.find_elements('id', page.package + ':id/tv_hint') if e.is_displayed()]
-    index = indexes[0]
-    version = values[index].text.strip() if len(values) > index else ''
-    if not version:
-        raise TestBlocked("无法读取当前眼镜固件版本。")
-    android.log("firmware-version", version)
-    return version
+        up = firmware != 'wifi'
+        android.driver.swipe(size['width'] // 2, int(size['height'] * (.30 if up else .78)),
+                             size['width'] // 2, int(size['height'] * (.82 if up else .30)), 400)
+    raise TestBlocked(f'系统设置页未找到 {row_id} 的实际版本。')
 
 
 def choose_target(android, firmware: str) -> tuple[str, dict, str]:
     """按当前实际版本决定本轮做升级或降级，避免重复推同一版本。"""
-    current = firmware_version(android)
+    current = firmware_version(android, firmware)
     upgrade = _target(android, firmware, "upgrade")
     downgrade = _target(android, firmware, "downgrade")
     try:
@@ -125,22 +121,30 @@ class FirmwareUpdatePage:
         return any(any(phrase.lower() in text.lower() for phrase in phrases) for text in texts)
 
     def open(self):
-        HomeDevicePage(self.a).setting("System Settings")
-        # 此入口在设置页底部，文字虽可见但触点会贴近导航栏；先滚动到中部，
-        # 再点击可点击的整行，避免把原设置页误当成已打开的固件页。
-        size = self.a.driver.get_window_size()
-        self.a.driver.swipe(size['width'] // 2, int(size['height'] * .8),
-                            size['width'] // 2, int(size['height'] * .4), 350)
-        rows = self.a.wait(lambda: [e for e in self.a.driver.find_elements(
-            'id', self.package + ':id/version') if e.is_displayed() and e.is_enabled()],
-            'Firmware Update 设置入口', 15)
-        if len(rows) != 1:
-            raise TestBlocked(f'Firmware Update 设置入口不唯一：{len(rows)} 项。')
-        rows[0].click()
-        self.a.wait(lambda: any(e.is_displayed() for resource in ('uof_btn', 'uof_version')
-                                for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)),
-                    '真正进入 Firmware Update 页面', 15)
-        self.a.capture("firmware-update-page")
+        from .errors import WaitTimeout
+        for attempt in range(2):
+            HomeDevicePage(self.a).setting("System Settings")
+            # 入口位于设置页底部，先滚动到中部再点击整行。
+            size = self.a.driver.get_window_size()
+            self.a.driver.swipe(size['width'] // 2, int(size['height'] * .8),
+                                size['width'] // 2, int(size['height'] * .4), 350)
+            rows = self.a.wait(lambda: [e for e in self.a.driver.find_elements(
+                'id', self.package + ':id/version') if e.is_displayed() and e.is_enabled()],
+                'Firmware Update 设置入口', 15)
+            if len(rows) != 1:
+                raise TestBlocked(f'Firmware Update 设置入口不唯一：{len(rows)} 项。')
+            rows[0].click()
+            try:
+                self.a.wait(lambda: any(e.is_displayed() for resource in ('uof_btn', 'uof_version')
+                                        for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)),
+                            '真正进入 Firmware Update 页面', 15)
+                self.a.capture("firmware-update-page")
+                return
+            except WaitTimeout:
+                if attempt:
+                    raise
+                self.a.log('firmware-retry', '固件更新页未打开，确认眼镜连接后重试入口')
+                HomeDevicePage(self.a).connected()
 
     def start(self):
         self._visible_text(("Update Now", "Update"), 15).click()
@@ -156,15 +160,18 @@ class FirmwareUpdatePage:
                 raise AssertionError("强制固件升级弹窗不应提供 Cancel。")
         self.start()
 
-    def wait_for_completion(self, expected: str, before: str, direction: str, timeout=1200):
+    def wait_for_completion(self, expected: str, before: str, direction: str, timeout=1200,
+                            firmware='bluetooth'):
         """检查下载/传输/更新过程，并以更新后的实际版本作为最终结论。"""
         stages = (("download", ("download",)), ("transfer", ("transfer",)), ("update", ("updating", "installing")))
         deadline = time.monotonic() + timeout
         observed = set()
+        outcome = 'timeout'
         while time.monotonic() < deadline:
             if self._any_text(('Update Failed', 'Upgrade Failed', 'Download Failed', 'Transfer Failed')):
                 self.a.capture('firmware-update-failed')
-                raise AssertionError('固件更新页显示 Update Failed，请查看该用例截图和手机日志。')
+                outcome = 'failed'
+                break
             for name, words in stages:
                 if name not in observed and self._any_text(words):
                     observed.add(name)
@@ -172,16 +179,19 @@ class FirmwareUpdatePage:
                     self.a.log("firmware-stage", name)
             if self._any_text(("update successful", "update complete", "updated successfully", "upgrade successful")):
                 self.a.capture("firmware-success")
+                outcome = 'success'
                 break
             time.sleep(2)
-        else:
-            raise AssertionError("固件更新未在限定时间内显示成功结果。")
-        missing = {"download", "transfer", "update"} - observed
-        if missing:
-            raise AssertionError("固件更新未观察到阶段：" + "、".join(sorted(missing)))
-        actual = firmware_version(self.a)
+        if outcome == 'timeout':
+            self.a.capture('firmware-update-timeout')
+        try:
+            actual = firmware_version(self.a, firmware)
+        except Exception as exc:
+            raise AssertionError(f'固件更新{outcome}，且无法读取更新后的 {firmware} 实际版本：{exc}') from exc
+        self.a.log('firmware-result', {'outcome': outcome, 'observed': sorted(observed),
+                                       'before': before, 'expected': expected, 'actual': actual})
         if _numbers(actual) != _numbers(expected):
-            raise AssertionError(f"固件更新后版本错误：期望 {expected}，实际 {actual}。")
+            raise AssertionError(f"固件更新{outcome}；版本未达到目标：期望 {expected}，实际 {actual}。")
         if direction == "upgrade" and _numbers(actual) <= _numbers(before):
             raise AssertionError(f"升级后版本未高于更新前：{before} -> {actual}。")
         if direction == "downgrade" and _numbers(actual) >= _numbers(before):
