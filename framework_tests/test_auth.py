@@ -8,20 +8,58 @@ from cases.g_series.test_auth import run_case
 
 
 class AuthSafetyTests(unittest.TestCase):
+    def test_cl055_reports_wrong_destination_as_assertion_failure(self):
+        page = Mock(unsafe=True)
+        page.el.side_effect = lambda key: Mock(text='Create Account' if key == 'tv_confirm' else 'Cancel')
+        page.text.side_effect = [Mock(), WaitTimeout('注册页未出现')]
+        page.has.side_effect = lambda key: key in ('et_pwd', 'et_email')
+        page.value.return_value = ''
+        with self.assertRaisesRegex(AssertionError,
+                                    r'C-L_055 断言失败：.*实际停在 Log in Your Account，邮箱为 <空>'):
+            run_case(page, 55)
+
+    def test_cl008_returns_from_external_privacy_page_by_foregrounding_app(self):
+        page = Mock(unsafe=True)
+        page.package = 'com.dpvr.android.app.Occident'
+        page.d.current_package = page.package
+        page.has.return_value = True
+        run_case(page, 8)
+        page.click_privacy_link.assert_called_once_with('Privacy Policy')
+        page.assert_page_title.assert_called_once_with('Privacy Policy')
+        page.a.ensure_foreground.assert_called_once_with()
+        page.text.assert_called_once_with('Log in Your Account')
+        page.d.swipe.assert_not_called()
+
+    def test_cl016_reports_email_preservation_as_assertion_failure(self):
+        page = Mock()
+        page.el.side_effect = lambda key: Mock(text='Cancel' if key == 'tv_cancel' else 'Create Account')
+        page.value.return_value = ''
+        with self.assertRaisesRegex(AssertionError,
+                                    r'C-L_016 断言失败：.*邮箱应为 .*实际为 <空>'):
+            run_case(page, 16)
+
     def test_used_registration_code_on_delete_must_be_rejected(self):
         page = Mock()
         page.a = Mock(unsafe=True)
-        page.has.side_effect = lambda key: key == 'tvDesc'
-        page.el.side_effect = lambda key: Mock(text={
-            'tv_summary': EMAIL, 'tv_title': 'Incorrect verification code',
-            'tvDesc': 'The code is invalid', 'hint': EMAIL}[key])
-        run_case(page, 39, '123456')
-        page.start_delete_code.assert_called_once()
-        page.enter_code.assert_called_once_with('123456')
-
-        page.has.side_effect = lambda key: key == 'tabIcon'
-        with self.assertRaisesRegex(AssertionError, '账号已注销'):
+        page.a.context = {'phone': 'test-phone'}
+        page.new_code.side_effect = lambda trigger: (trigger(), '654321')[1]
+        page.a.wait.side_effect = lambda read, *_args, **_kwargs: read()
+        page.deletion_code_result.return_value = {'success': False, 'errorCode': 2003}
+        page.has.side_effect = lambda key: key == 'et_code1'
+        page.el.side_effect = lambda key: Mock(text=EMAIL if key == 'tv_summary' else 'Not logged in')
+        with patch('cases.g_series.test_auth.Adb') as adb:
+            adb.return_value.shell.return_value = '100'
             run_case(page, 39, '123456')
+        page.start_delete_code.assert_called_once()
+        self.assertEqual([call.args[0] for call in page.enter_code.call_args_list], ['123456', '654321'])
+
+        page.deletion_code_result.return_value = {'success': True, 'errorCode': None}
+        page.enter_code.reset_mock()
+        with patch('cases.g_series.test_auth.Adb') as adb:
+            adb.return_value.shell.return_value = '100'
+            with self.assertRaisesRegex(AssertionError, '旧验证码未被判定'):
+                run_case(page, 39, '123456')
+        page.enter_code.assert_called_once_with('123456')
 
     def page(self):
         with patch('studio.auth.VerificationMailbox'):
@@ -162,6 +200,25 @@ class AuthSafetyTests(unittest.TestCase):
             adb.return_value.shell.return_value = '123'
             adb.return_value.run.return_value = log
             self.assertIn('频繁', page.request_failure(101))
+
+    def test_deletion_code_result_matches_this_code_and_operation(self):
+        page = self.page()
+        page.a.context['phone'] = 'test-phone'
+        log = '\n'.join([
+            '100.1 1 2 D OKHttp : --> POST https://napi.dpvr.com/email/verifyCode HTTP/1.1',
+            f'100.2 1 2 D OKHttp : {{"code":"123456","email":"{page.email}","operation":"1"}}',
+            '100.3 1 2 D OKHttp : <-- 200 OK https://napi.dpvr.com/email/verifyCode',
+            '100.4 1 2 D OKHttp : {"success":true}',
+            '101.1 1 2 D OKHttp : --> POST https://napi.dpvr.com/email/verifyCode HTTP/1.1',
+            f'101.2 1 2 D OKHttp : {{"code":"123456","email":"{page.email}","operation":"4"}}',
+            '101.3 1 2 D OKHttp : <-- 200 OK https://napi.dpvr.com/email/verifyCode',
+            '101.4 1 2 D OKHttp : {"success":false,"errorCode":2003,"message":"验证码错误"}',
+        ])
+        with patch('studio.auth.Adb') as adb:
+            adb.return_value.shell.return_value = '123'
+            adb.return_value.run.return_value = log
+            self.assertEqual(page.deletion_code_result(101, '123456')['errorCode'], 2003)
+            self.assertIsNone(page.deletion_code_result(101, '654321'))
 
     def test_daily_code_limit_blocks_without_retry(self):
         page = self.page()

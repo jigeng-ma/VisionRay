@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import time
+from xml.etree import ElementTree as ET
 
 from .errors import TestBlocked
 from .home_device import HomeDevicePage
@@ -75,6 +76,22 @@ def prepare_target(task_id: int, mandatory: bool) -> None:
     client.set_force(task_id, mandatory, apply=True)
 
 
+def clear_target(task_id: int) -> None:
+    """升级用例结束后撤下测试推送，避免强制弹窗影响后续模块。"""
+    client = OtaClient()
+    errors = []
+    for label, operation in (
+        ('下线', lambda: client.set_state(task_id, 'offline', apply=True)),
+        ('取消强制', lambda: client.set_force(task_id, False, apply=True)),
+    ):
+        try:
+            operation()
+        except Exception as exc:
+            errors.append(f'{label}失败：{exc}')
+    if errors:
+        raise RuntimeError(f'固件任务 {task_id} 后置清理未完成：' + '；'.join(errors))
+
+
 def leave_failed_update(android) -> bool:
     """离开上条 OTA 失败页，供后续独立用例恢复前置页面。"""
     package = android.context['config']['package']
@@ -104,6 +121,23 @@ def leave_failed_update(android) -> bool:
     return True
 
 
+def leave_completed_update(android) -> bool:
+    """Acknowledge a completed OTA left visible by an interrupted prior case."""
+    package = android.context['config']['package']
+    messages = [e for e in android.driver.find_elements('id', package + ':id/tv_message')
+                if e.is_displayed() and e.text.strip().lower() == 'updated complete']
+    if not messages:
+        return False
+    buttons = [e for e in android.driver.find_elements('id', package + ':id/tv_confirm')
+               if e.is_displayed() and e.text.strip() == 'OK']
+    if len(buttons) != 1:
+        raise AssertionError('固件更新成功弹窗缺少 OK 按钮。')
+    android.capture('firmware-completed-recovery')
+    buttons[0].click()
+    android.log('firmware-recovery', 'acknowledged Updated Complete')
+    return True
+
+
 class FirmwareUpdatePage:
     def __init__(self, android):
         self.a = android
@@ -116,9 +150,44 @@ class FirmwareUpdatePage:
             if e.is_displayed() and e.text.strip() in values), None), " / ".join(values), timeout)
 
     def _any_text(self, phrases):
-        texts = [e.text.strip() for e in self.a.driver.find_elements(
-            "xpath", f"//*[@package='{self.package}' and @text]") if e.is_displayed()]
+        texts = [node.get('text', '').strip() for node in ET.fromstring(self.a.driver.page_source).iter()
+                 if node.get('package') == self.package and node.get('displayed') != 'false']
         return any(any(phrase.lower() in text.lower() for phrase in phrases) for text in texts)
+
+    def has_startup_popup(self):
+        return (any(e.is_displayed() and e.text.strip().lower() == 'firmware update'
+                    for e in self.a.driver.find_elements('id', self.package + ':id/tv_title'))
+                and any(e.is_displayed() for e in self.a.driver.find_elements(
+                    'id', self.package + ':id/tv_update_content')))
+
+    def dismiss_stale_startup_popup(self):
+        """Leave an OTA prompt left on screen by an earlier interrupted run without starting transfer."""
+        if leave_completed_update(self.a):
+            return True
+        if not self.has_startup_popup():
+            return False
+        cancels = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_cancel')
+                   if e.is_displayed() and e.text.strip() == 'Cancel']
+        if len(cancels) == 1:
+            cancels[0].click()
+            self.a.wait(lambda: self.a.find('pair.home_title'), '关闭遗留非强制固件弹窗', 15)
+            self.a.log('firmware-recovery', 'dismissed stale optional popup')
+            return True
+        confirms = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_confirm')
+                    if e.is_displayed() and e.text.strip() in ('Update Now', 'Update')]
+        if len(confirms) != 1:
+            raise AssertionError('遗留固件更新弹窗缺少确认入口。')
+        confirms[0].click()
+        self.a.wait(lambda: any(e.is_displayed() for e in self.a.driver.find_elements(
+            'id', self.package + ':id/uof_btn')), '遗留固件弹窗进入详情页', 15)
+        self.a.driver.press_keycode(4)
+        quit_buttons = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_cancel')
+                        if e.is_displayed() and e.text.strip() == 'Quit']
+        if len(quit_buttons) == 1:
+            quit_buttons[0].click()
+        self.a.wait(lambda: self.a.find('pair.home_title'), '退出遗留固件详情页', 15)
+        self.a.log('firmware-recovery', 'dismissed stale startup popup before selecting target')
+        return True
 
     def open(self):
         from .errors import WaitTimeout
@@ -152,24 +221,45 @@ class FirmwareUpdatePage:
 
     def startup_popup(self, mandatory: bool):
         """验证启动弹窗；非强制弹窗的安装、登录、绑定前置由调用方保证。"""
-        self._visible_text(("Firmware Update", "Firmware update"), 20)
+        self.a.wait(self.has_startup_popup,
+                    '固件更新启动弹窗', 20)
         if mandatory:
-            cancel = [e for e in self.a.driver.find_elements("xpath", f"//*[@package='{self.package}' and @text='Cancel']")
+            cancel = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_cancel')
                       if e.is_displayed()]
             if cancel:
                 raise AssertionError("强制固件升级弹窗不应提供 Cancel。")
-        self.start()
+        confirm = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('id', self.package + ':id/tv_confirm')
+                                           if e.is_displayed() and e.text.strip() in ('Update Now', 'Update')), None),
+                              '固件更新弹窗确认按钮', 10)
+        self.a.capture('firmware-startup-popup')
+        confirm.click()
+        self.a.wait(lambda: any(e.is_displayed() for e in self.a.driver.find_elements('id', self.package + ':id/uof_btn')),
+                    '弹窗确认后进入固件详情页', 15)
+        # The popup opens the details page. A second tap is needed only while the
+        # page still offers Update Now; some builds start transfer automatically.
+        labels = [e for e in self.a.driver.find_elements('id', self.package + ':id/uof_btn_text')
+                  if e.is_displayed() and e.text.strip() in ('Update Now', 'Update')]
+        if labels:
+            labels[0].click()
+            self.a.log('firmware-update', 'started from details page')
 
     def wait_for_completion(self, expected: str, before: str, direction: str, timeout=1200,
-                            firmware='bluetooth'):
+                            firmware='bluetooth', after_outcome=None):
         """检查下载/传输/更新过程，并以更新后的实际版本作为最终结论。"""
         stages = (("download", ("download",)), ("transfer", ("transfer",)), ("update", ("updating", "installing")))
         deadline = time.monotonic() + timeout
         observed = set()
         outcome = 'timeout'
+        failure_message = ''
         while time.monotonic() < deadline:
+            if self._any_text(('Bluetooth not connected', 'Please pair your glasses')):
+                self.a.capture('firmware-bluetooth-disconnected')
+                raise AssertionError('固件更新无法开始：APP 提示 Bluetooth not connected，请检查眼镜 BLE 连接。')
             if self._any_text(('Update Failed', 'Upgrade Failed', 'Download Failed', 'Transfer Failed')):
                 self.a.capture('firmware-update-failed')
+                descriptions = [e.text.strip() for e in self.a.driver.find_elements('id', self.package + ':id/tvDesc')
+                                if e.is_displayed() and e.text.strip()]
+                failure_message = descriptions[0] if descriptions else 'APP 显示 Update Failed'
                 outcome = 'failed'
                 break
             for name, words in stages:
@@ -177,22 +267,35 @@ class FirmwareUpdatePage:
                     observed.add(name)
                     self.a.capture("firmware-" + name)
                     self.a.log("firmware-stage", name)
-            if self._any_text(("update successful", "update complete", "updated successfully", "upgrade successful")):
+            if self._any_text(("update successful", "update complete", "updated complete",
+                               "updated successfully", "upgrade successful")):
                 self.a.capture("firmware-success")
                 outcome = 'success'
                 break
             time.sleep(2)
         if outcome == 'timeout':
             self.a.capture('firmware-update-timeout')
+        if outcome == 'success':
+            confirmations = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_confirm')
+                             if e.is_displayed() and e.text.strip() == 'OK']
+            if len(confirmations) == 1:
+                confirmations[0].click()
+                self.a.log('firmware-success', 'confirmed Updated Complete')
+        if after_outcome:
+            after_outcome()
         try:
             actual = firmware_version(self.a, firmware)
         except Exception as exc:
             raise AssertionError(f'固件更新{outcome}，且无法读取更新后的 {firmware} 实际版本：{exc}') from exc
-        self.a.log('firmware-result', {'outcome': outcome, 'observed': sorted(observed),
+        self.a.log('firmware-result', {'outcome': outcome, 'message': failure_message, 'observed': sorted(observed),
                                        'before': before, 'expected': expected, 'actual': actual})
         if _numbers(actual) != _numbers(expected):
-            raise AssertionError(f"固件更新{outcome}；版本未达到目标：期望 {expected}，实际 {actual}。")
+            reason = f'；APP 提示：{failure_message}' if failure_message else ''
+            raise AssertionError(f"固件更新{outcome}{reason}；版本未达到目标：期望 {expected}，实际 {actual}。")
         if direction == "upgrade" and _numbers(actual) <= _numbers(before):
             raise AssertionError(f"升级后版本未高于更新前：{before} -> {actual}。")
         if direction == "downgrade" and _numbers(actual) >= _numbers(before):
             raise AssertionError(f"降级后版本未低于更新前：{before} -> {actual}。")
+        if direction == 'downgrade' and outcome == 'failed':
+            return (f'APP提示OTA失败，但检查版本已从{before}降到{actual}版本，'
+                    '判定降级成功，忽略异常提示')

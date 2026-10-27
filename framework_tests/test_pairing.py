@@ -27,6 +27,29 @@ class HomeSettingTests(unittest.TestCase):
             page.setting('System Settings')
             entry.click.assert_called_once_with()
 
+
+class SkipConfirmationLocatorTests(unittest.TestCase):
+    def setUp(self):
+        self.android = Android({'config': resolve(ROOT, 'G系列', 'G1')})
+        self.android.driver = Mock()
+        self.guard = Mock(); self.guard.is_displayed.return_value = True
+        self.button = Mock(); self.button.is_displayed.return_value = True
+
+    def test_new_button_text_uses_id(self):
+        self.button.text = 'Skip'
+        self.android.driver.find_elements.side_effect = [[self.guard], [self.button]]
+        self.assertIs(self.android.find('pair.skip_confirm'), self.button)
+
+    def test_changed_id_uses_text_fallback(self):
+        self.button.text = 'Yes, skip it'
+        self.android.driver.find_elements.side_effect = [[self.guard], [], [self.button]]
+        self.assertIs(self.android.find('pair.skip_confirm'), self.button)
+
+    def test_unrelated_confirmation_dialog_is_not_matched(self):
+        self.android.driver.find_elements.return_value = []
+        self.assertIsNone(self.android.find('pair.skip_confirm'))
+        self.android.driver.find_elements.assert_called_once()
+
 def xml(package, texts):
     return '<hierarchy>'+''.join('<node package='+quoteattr(package)+' text='+quoteattr(t)+'/>' for t in texts)+'</hierarchy>'
 
@@ -38,11 +61,8 @@ class PopupTests(unittest.TestCase):
         self.a.driver.find_elements.return_value=[self.button]
         self.guard=PopupGuard(self.a)
 
-    def test_pair_only_target_and_active_flow(self):
+    def test_pair_known_target_even_if_request_arrives_after_pairing_step(self):
         self.a.driver.page_source=xml('com.android.settings',['Bluetooth pairing request','Pair with DPVR G1_13E6?','Pair'])
-        with self.assertRaises(TestBlocked):self.guard.handle()
-        self.button.click.assert_not_called()
-        self.guard.pairing_active=True
         self.assertTrue(self.guard.handle())
         self.button.click.assert_called_once()
         self.assertEqual(self.guard.pairing_accepted,1)
@@ -106,15 +126,40 @@ class ScrollTests(unittest.TestCase):
         for tab in tabs: tab.is_displayed.return_value=True
         name=Mock();name.text='VisionRay';name.is_displayed.return_value=True
         a.driver.find_elements.return_value=tabs
-        a.wait.side_effect=['models', Mock(), name, tabs, Mock()]
-        with patch('studio.pairing.time.sleep'), patch.object(PairingPage, '_model_names', return_value=set()):
+        a.wait.side_effect=['models', Mock(), name, tabs, Mock(), Mock()]
+        with patch('studio.pairing.time.sleep'), patch.object(PairingPage, '_model_names', side_effect=[set(), {'DPVR G1', 'DPVR G3', 'DPVR G6'}]):
             PairingPage(a).enable_g_series_models()
         self.assertEqual(name.click.call_count,11)
-        self.assertEqual(a.wait.call_count,5)
+        self.assertEqual(a.wait.call_count,6)
+
+    def test_g_series_switch_retries_three_times_and_verifies_model_list(self):
+        a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
+        tabs=[Mock(),Mock(),Mock()]
+        for tab in tabs: tab.is_displayed.return_value=True
+        name=Mock();name.text='VisionRay';name.is_displayed.return_value=True
+        a.driver.find_elements.return_value=tabs
+        a.wait.side_effect=['models', Mock()] + [value for _ in range(3) for value in (name, tabs, Mock(), Mock())]
+        names=[set(), {'Flow Nova'}, {'Flow Nova'}, {'DPVR G1','DPVR G3','DPVR G6'}]
+        with patch('studio.pairing.time.sleep'), patch.object(PairingPage, '_model_names', side_effect=names):
+            PairingPage(a).enable_g_series_models()
+        self.assertEqual(name.click.call_count,33)
+        self.assertEqual(a.click.call_count,4)  # 初次检查及每次点击后重新打开型号列表
+
+    def test_g_series_switch_reports_after_three_verified_attempts(self):
+        a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
+        tabs=[Mock(),Mock(),Mock()]
+        for tab in tabs: tab.is_displayed.return_value=True
+        name=Mock();name.text='VisionRay';name.is_displayed.return_value=True
+        a.driver.find_elements.return_value=tabs
+        a.wait.side_effect=['models', Mock()] + [value for _ in range(3) for value in (name, tabs, Mock(), Mock())]
+        with patch('studio.pairing.time.sleep'), patch.object(PairingPage, '_model_names', return_value={'Flow Nova'}):
+            with self.assertRaisesRegex(TestBlocked, '连续 3 次开启隐藏型号'):
+                PairingPage(a).enable_g_series_models()
+        self.assertEqual(name.click.call_count,33)
 
     def test_add_device_login_redirect_restores_account_before_models(self):
         a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
-        a.wait.side_effect=['login', Mock()]
+        a.wait.side_effect=['login', Mock(), Mock()]
         a.driver.find_elements.return_value=[Mock(text=name, is_displayed=Mock(return_value=True))
                                              for name in ('DPVR G1', 'DPVR G3', 'DPVR G6')]
         with patch('studio.auth.AuthPage') as auth, patch.object(
@@ -122,6 +167,30 @@ class ScrollTests(unittest.TestCase):
             PairingPage(a).enable_g_series_models()
         auth.return_value.registered.assert_called_once_with()
         self.assertEqual(a.click.call_args_list[:2], [unittest.mock.call('pair.add')] * 2)
+
+    def test_g7_login_redirect_restores_account_before_flow_pro_models(self):
+        a = Mock()
+        a.context = {'config': {'product': 'G7', 'package': 'app',
+                                'pairing': {'model_label': 'Flow Pro Pilot'}}}
+        a.wait.side_effect = ['login', Mock()]
+        a.driver.find_elements.return_value = [Mock(is_displayed=Mock(return_value=True))]
+        with patch('studio.auth.AuthPage') as auth:
+            PairingPage(a).open_model_list()
+        auth.return_value.registered.assert_called_once_with()
+        self.assertEqual(a.click.call_args_list, [unittest.mock.call('pair.add')] * 2)
+        a.element.assert_called_once_with('pair.models_title', 12)
+
+    def test_g7_prepare_search_opens_models_with_login_precondition(self):
+        a = Mock()
+        a.context = {'config': {'product': 'G7', 'package': 'app',
+                                'pairing': {'model_label': 'Flow Pro Pilot'}}}
+        a.find.side_effect = lambda key: key == 'pair.add'
+        page = PairingPage(a)
+        with patch.object(page, 'open_model_list') as open_models, \
+             patch.object(page, 'select_model') as select:
+            page.prepare_search()
+        open_models.assert_called_once_with()
+        select.assert_called_once_with('Flow Pro Pilot', retry=False)
 
     def test_checks_last_page_even_when_scroll_returns_false(self):
         a=Mock();a.context={'config':{'pairing':{'max_scrolls':12,'model_label_id':'label'}}}

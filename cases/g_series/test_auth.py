@@ -181,8 +181,8 @@ def load_used_code():
 
 @pytest.fixture
 def context(context):
-    # 邮件轮询最长90秒，不能沿用驱动默认60秒空闲超时。
-    return dict(context, config=dict(context['config'], new_command_timeout=180))
+    # 验证码限流需等待 5 分钟，Appium 空闲会话必须覆盖整段等待及后续操作。
+    return dict(context, config=dict(context['config'], new_command_timeout=420))
 
 
 @pytest.fixture
@@ -358,15 +358,10 @@ def run_case(p, n, shared_code=None):
         title = 'User Agreement' if n == 7 else 'Privacy Policy'
         p.click_privacy_link(title)
         p.assert_page_title(title)
-        for _ in range(3):
-            p.d.back()
-            if p.d.current_package == p.package:
-                break
-        if p.d.current_package != p.package:
-            raise AssertionError(f'退出 {title} 后仍停留在系统浏览器，未返回 APP。')
-        if p.has('tv_login_by_email'):
-            raise AssertionError(f'退出 {title} 后返回登录方式选择页，未保留原邮箱登录页。')
+        p.a.ensure_foreground()
+        assert p.d.current_package == p.package, f'{title} 检查后未能将 APP 切换到前台。'
         p.text('Log in Your Account')
+        assert p.has('et_email'), f'{title} 检查后 APP 未返回邮箱登录页。'
     elif n in (9, 10):
         p.login_page()
         p.fill('et_email', '' if n == 9 else EMAIL)
@@ -420,7 +415,10 @@ def run_case(p, n, shared_code=None):
         p.click('tv_cancel' if n == 17 else 'tv_confirm')
         p.text('Log in Your Account' if n == 17 else "What's your email?")
         if n in (16, 17):
-            assert p.value('et_email') == EMAIL, '邮箱未保留'
+            actual = p.value('et_email')
+            assert actual == EMAIL, (f'C-L_{n:03d} 断言失败：点击 {"Create Account" if n == 16 else "Cancel"} 后，'
+                                     f'{"注册" if n == 16 else "登录"}页邮箱应为 {EMAIL}，'
+                                     f'实际为 {actual or "<空>"}。')
             p.fill('et_email', 'abc')
             assert p.value('et_email') == 'abc'
     elif n in (18, 19):
@@ -463,26 +461,27 @@ def run_case(p, n, shared_code=None):
     elif n in (24, 28, 29, 30, 31, 32, 33, 34, 37, 38, 41, 47, 48):
         fresh_code = check_code(p, n, code, 'register')
     elif n == 39:
-        # 注销入口会发送新码；此处只验证注册旧码在注销流程中被拒绝，
-        # 不能单独证明失效原因是已使用、新码覆盖还是自然过期。
-        p.start_delete_code()
+        # 保留注销入口的新码：旧码被拒绝后，用它注销测试账号，供后续用例使用。
+        valid_code = p.new_code(p.start_delete_code)
         p.text('ID Verification')
         assert EMAIL in p.el('tv_summary').text, '注销验证码页不是原测试邮箱'
+        since = float(Adb().shell(p.a.context['phone'], 'date', '+%s'))
         p.enter_code(shared_code)
-        if not p.has('tvDesc') and p.has('tv_captcha_next') and p.el('tv_captcha_next').is_enabled():
-            p.click('tv_captcha_next')
-        p.a.assert_wait(lambda: p.has('tvDesc') or p.has('tabIcon'), True,
-                        '旧验证码提交后出现错误提示或注销结果', 20)
-        if p.has('tabIcon') and not p.has('tvDesc'):
-            raise AssertionError('注册旧验证码被接受，账号已注销')
-        message = ' '.join((p.el('tv_title').text, p.el('tvDesc').text)).lower()
-        assert (any(word in message for word in ('code', 'verification', '验证码')) and
-                any(word in message for word in ('incorrect', 'invalid', 'expired', 'error', 'failed', 'used',
-                                                 '错误', '失效', '过期', '无效'))), \
-            f'旧验证码未被明确判定错误或失效：{message}'
-        p.click('tv_confirm')
+        try:
+            result = p.a.wait(lambda: p.deletion_code_result(since, shared_code),
+                              '旧验证码的注销校验接口结果', 15, handle_popups=False)
+        except WaitTimeout:
+            raise AssertionError('提交旧验证码后未取得注销校验接口结果，无法判定是否被拒绝。') from None
+        p.a.log('old-deletion-code-result', {key: result.get(key) for key in ('success', 'errorCode')})
+        assert result['success'] is False and result['errorCode'] == 2003, \
+            f'旧验证码未被判定为验证码错误：{result}'
+        if p.has('tvDesc'):
+            p.click('tv_confirm')
+        assert p.has('et_code1') and EMAIL in p.el('tv_summary').text, '旧验证码提交后未停留在该账号的验证页'
+        p.enter_code(valid_code)
+        p.a.assert_wait(lambda: p.has('tabIcon'), True, '使用新验证码注销后主页面状态', 25)
         p.home()
-        assert p.el('hint').text == EMAIL, '旧验证码提交后账号已注销'
+        assert p.el('hint').text == 'Not logged in', '使用新验证码后测试账号未注销'
     elif n in (42, 43, 44, 45, 46, 49, 72, 73, 74, 75, 78):
         if n in (42, 72):
             for key in ('et_pwd', 'iv_hide_pwd', 'tv_pwd_ok', 'back_iv'):
@@ -533,16 +532,30 @@ def run_case(p, n, shared_code=None):
             previous_password_file().write_text(json.dumps({
                 'account': EMAIL, 'last_case': 78,
                 'old_password': old_password, 'new_password': p.password}), encoding='utf-8')
-            assert p.value('et_email') == EMAIL
+            actual_email = p.value('et_email')
+            assert actual_email == EMAIL, (f'C-L_078 断言失败：密码重置后登录页'
+                                           f'应自动带入邮箱 {EMAIL}，实际为 {actual_email or "<空>"}。')
             p.login(new_password)
             return old_password
     elif n in (55, 56):
         p.unregistered_login('reset')
         assert p.el('tv_confirm').text == 'Create Account'
         assert p.el('tv_cancel').text == 'Cancel'
+        p.a.capture(f'AUTH_{n:03d}-not-registered-dialog')
         # 此确认框的 resource-id 在部分版本中与文案语义相反，按可见文案点击。
         p.text('Create Account' if n == 55 else 'Cancel').click()
-        p.text("What's your email?" if n == 55 else 'Find your account')
+        p.a.capture(f'AUTH_{n:03d}-after-dialog-action')
+        expected_page = "What's your email?" if n == 55 else 'Find your account'
+        try:
+            p.text(expected_page)
+        except WaitTimeout:
+            actual_page = ('Log in Your Account' if p.has('et_pwd') else
+                           'Find your account' if p.has('tv_email_next') else '未知页面')
+            actual_email = p.value('et_email') if p.has('et_email') else '<无邮箱输入框>'
+            raise AssertionError(
+                f'C-L_{n:03d} 断言失败：点击 {"Create Account" if n == 55 else "Cancel"} 后'
+                f'应进入 {expected_page} 并保留邮箱 {EMAIL}；'
+                f'实际停在 {actual_page}，邮箱为 {actual_email or "<空>"}。') from None
         assert p.value('et_email') == EMAIL, '邮箱未保留'
         p.fill('et_email', 'abc')
         assert p.value('et_email') == 'abc'

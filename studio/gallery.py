@@ -291,9 +291,11 @@ class GalleryPage:
                                '空间页导入后待导入卡片仍存在', timeout)
         # 导入完成后，两个入口都不应继续显示同一批待导入媒资。
         self.open_home()
-        assert not self.import_card(), '首页导入完成后仍显示待导入媒资卡片。'
+        self.a.assert_wait(lambda: bool(self.import_card()), False,
+                           '首页导入完成后仍显示待导入媒资卡片', timeout)
         self.open()
-        assert not self.import_card(), '空间页导入完成后仍显示待导入媒资卡片。'
+        self.a.assert_wait(lambda: bool(self.import_card()), False,
+                           '空间页导入完成后仍显示待导入媒资卡片', timeout)
         self.a.log('imported-media-count', {'surface': surface, 'count': before})
         return before
 
@@ -414,12 +416,13 @@ class GalleryPage:
             # Samsung 分享弹窗中预览图底部约在屏幕 54%–67%，水印位于该区域左下角。
             regions.append((0, int(height * .54), width, int(height * .67)))
         if video:
-            regions = [(0, int(height * .55), int(width * .65), height)]
+            # 视频位于屏幕中段，水印贴近画面左下角；包含底部操作栏会干扰 OCR。
+            regions = [(0, int(height * .64), int(width * .38), int(height * .72))]
         texts = []
         for region in regions:
             crop = image.crop(region)
             # 原图通常已是 4K；限制 OCR 输入宽度，避免长时间没有 Appium 指令而会话超时。
-            if label == 'system-share-sheet' and region[1] == int(height * .54):
+            if video or (label == 'system-share-sheet' and region[1] == int(height * .54)):
                 crop = crop.resize((crop.width * 4, crop.height * 4))
             elif crop.width < 1600:
                 crop = crop.resize((crop.width * 2, crop.height * 2))
@@ -486,25 +489,41 @@ class GalleryPage:
         self.a.log('video-thumbnail-duration', {'actual': actual, 'shown': shown, 'expected': expected_seconds})
 
     def play_pause(self):
+        from .devices import Adb
         from .errors import WaitTimeout
-        def seconds():
-            value = self.one('cur_time_tv', '视频当前播放时间').text
-            minute, second = map(int, value.split(':'))
-            return minute * 60 + second
-        # 新版 ExoPlayer 的播放/暂停共用 play_btn，以播放时间递增和暂停后的冻结判定状态。
-        before = seconds()
-        for attempt in range(2):
-            self.action('play_btn', '播放' if attempt == 0 else '重新播放')
+        phone = self.a.context['phone']
+        duration = self.one('total_time_tv', '视频总时长').text
+        assert duration != '00:00', f'视频总时长无效：{duration}。'
+        play = self.one('play_btn', '播放视频')
+        screen = self.d.get_window_size()
+        # 播放入口位于画面中央，播放后的暂停键则位于底部控制栏左侧。
+        # 控制栏自动隐藏时，第一次点此位置只会显示控制栏。
+        pause = (int(screen['width'] * .075), int(screen['height'] * .855))
+
+        def playing_events(since):
+            # 仅取播放器 tag；全量 logcat 的最新行数可能在视频播放期间把开始事件挤掉。
+            output = Adb().run('-s', phone, 'logcat', '-d', '-v', 'epoch', '-s', 'NovaPlayerView:D')
+            return [(float(stamp), state) for stamp, state in re.findall(
+                r'(\d+\.\d+)\s+\d+\s+\d+\s+D NovaPlayerView: onIsPlayingChanged: isPlaying = (true|false)',
+                output) if float(stamp) >= since]
+
+        started = float(Adb().shell(phone, 'date', '+%s'))
+        play.click()
+        self.a.wait(lambda: any(state == 'true' for _, state in playing_events(started)),
+                    '视频实际开始播放', 12)
+        time.sleep(2)
+        # 播放中 UIAutomator 查询可能直到视频结束才返回，因此按屏幕比例点暂停键。
+        pause_requested = float(Adb().shell(phone, 'date', '+%s'))
+        for attempt in range(3):
+            Adb().shell(phone, 'input', 'tap', str(pause[0]), str(pause[1]))
             try:
-                self.a.wait(lambda: seconds() > before, '视频播放进度变化', 8)
+                self.a.wait(lambda: any(state == 'false' for _, state in playing_events(pause_requested)),
+                            '视频实际暂停', 4)
                 break
             except WaitTimeout:
-                self.a.capture('video-playback-still-at-zero')
-                if attempt:
-                    raise AssertionError(f'视频播放进度未变化：播放前 {before} 秒，重试后 {seconds()} 秒。') from None
-        self.action('play_btn', '暂停播放')
-        paused = seconds()
-        time.sleep(1)
-        if abs(seconds() - paused) > 1:
-            raise AssertionError('暂停后视频播放时间仍在变化。')
+                if attempt == 2:
+                    raise
+        self.one('play_btn', '暂停后的播放按钮')
+        self.a.log('video-play-pause', {'duration': duration, 'pause_tap': pause,
+                                        'events': playing_events(started)})
 

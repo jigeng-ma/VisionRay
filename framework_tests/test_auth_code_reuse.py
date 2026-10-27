@@ -184,6 +184,14 @@ class RegistrationCodeReuseTests(unittest.TestCase):
         page.login.assert_called_once_with('new-password')
         page.reset.assert_not_called()
 
+    def test_0064_reports_missing_prefilled_email_clearly(self):
+        page = Mock(password='old-password')
+        page.value.return_value = ''
+        with patch.object(test_auth, 'previous_password_file', return_value=Mock()):
+            with self.assertRaisesRegex(AssertionError, 'C-L_078 断言失败：密码重置后登录页.*实际为 <空>'):
+                test_auth.run_case(page, 78)
+        page.login.assert_not_called()
+
     def test_0073_cancels_0072_verification_page_without_resending(self):
         page = Mock()
         page.has.return_value = True
@@ -289,15 +297,21 @@ class RegistrationCodeReuseTests(unittest.TestCase):
         page.complete_registration.assert_not_called()
         page.delete.assert_not_called()
 
-    def test_used_code_case_reuses_code_without_requesting_email(self):
+    def test_used_code_case_rejects_old_code_then_deletes_with_new_code(self):
         page = Mock()
         page.a = Mock(unsafe=True)
-        page.has.side_effect = lambda key: key == 'tvDesc'
-        page.el.side_effect = lambda key: Mock(text=test_auth.EMAIL if key in ('tv_summary', 'hint')
-                                               else 'Incorrect verification code')
-        test_auth.run_case(page, 39, '123456')
+        page.a.context = {'phone': 'test-phone'}
+        page.new_code.side_effect = lambda trigger: (trigger(), '654321')[1]
+        page.deletion_code_result.return_value = {'success': False, 'errorCode': 2003, 'message': '验证码错误'}
+        page.a.wait.side_effect = lambda read, *_args, **_kwargs: read()
+        page.has.side_effect = lambda key: key == 'et_code1'
+        page.el.side_effect = lambda key: Mock(text=test_auth.EMAIL if key == 'tv_summary'
+                                               else 'Not logged in')
+        with patch.object(test_auth.Adb, 'shell', return_value='100'):
+            test_auth.run_case(page, 39, '123456')
+        page.new_code.assert_called_once_with(page.start_delete_code)
         page.start_delete_code.assert_called_once_with()
-        page.enter_code.assert_called_once_with('123456')
+        self.assertEqual([call.args[0] for call in page.enter_code.call_args_list], ['123456', '654321'])
         page.code_page.assert_not_called()
         page.resend_code.assert_not_called()
         with tempfile.TemporaryDirectory() as folder:
@@ -308,11 +322,16 @@ class RegistrationCodeReuseTests(unittest.TestCase):
     def test_used_code_case_fails_if_delete_accepts_old_code(self):
         page = Mock()
         page.a = Mock(unsafe=True)
-        page.has.side_effect = lambda key: key == 'tabIcon'
+        page.a.context = {'phone': 'test-phone'}
+        page.new_code.side_effect = lambda trigger: (trigger(), '654321')[1]
+        page.deletion_code_result.return_value = {'success': True, 'errorCode': None, 'message': None}
+        page.a.wait.side_effect = lambda read, *_args, **_kwargs: read()
         page.el.return_value.text = test_auth.EMAIL
-        with self.assertRaisesRegex(AssertionError, '账号已注销'):
-            test_auth.run_case(page, 39, '123456')
+        with patch.object(test_auth.Adb, 'shell', return_value='100'):
+            with self.assertRaisesRegex(AssertionError, '旧验证码未被判定'):
+                test_auth.run_case(page, 39, '123456')
         page.start_delete_code.assert_called_once_with()
+        page.enter_code.assert_called_once_with('123456')
         page.code_page.assert_not_called()
         page.resend_code.assert_not_called()
 

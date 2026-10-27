@@ -47,7 +47,19 @@ def test_import_card_on_home_and_gallery(gallery):
     def action():
         expected = prepare_three_pending_media(gallery)
         restart_app(gallery)
-        gallery.assert_pending_counts(expected)
+        counts = {'home': 0, 'gallery': 0}
+        def restored():
+            counts['home'] = gallery.pending_count_or_zero('home')
+            if counts['home'] == expected:
+                counts['gallery'] = gallery.pending_count_or_zero('gallery')
+            return counts == {'home': expected, 'gallery': expected}
+        try:
+            gallery.a.wait(restored, 'APP 重启后首页与空间页媒资数量恢复', 30)
+        except WaitTimeout:
+            counts = {surface: gallery.pending_count_or_zero(surface) for surface in ('home', 'gallery')}
+            raise AssertionError(f'APP 重启后 30 秒媒资数量未恢复：期望首页和空间页各 {expected}，'
+                                 f'实际首页 {counts["home"]}、空间页 {counts["gallery"]}。') from None
+        gallery.a.log('pending-media-count', counts)
     run(gallery, action)
 
 

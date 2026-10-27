@@ -1,11 +1,12 @@
 import unittest
+import pytest
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 from zipfile import ZipFile
 
-from cases.g_series.test_foundation import _assert_first_launch, _cached_older_build, _older_build, _set_locale, test_lower_version_cover_install as cover_install_case
+from cases.g_series.test_foundation import _assert_first_launch, _cached_older_build, _older_build, _set_locale, _system_language_install, test_lower_version_cover_install as cover_install_case
 from studio.pgyer import history_builds
 from studio.errors import WaitTimeout
 
@@ -148,6 +149,38 @@ class FoundationTests(unittest.TestCase):
                 test.assertEqual(args[:2], ('getprop', 'persist.sys.locale'))
                 return 'en-US'
         _set_locale(android, Adb(), 'phone', 'en-US')
+
+    def test_wrong_settings_page_restarts_settings_and_retries(self):
+        android = _Android()
+        android.capture = Mock()
+        android.driver.current_activity = 'BluetoothSettingsActivity'
+
+        class Adb:
+            starts = 0
+
+            def shell(self, serial, *args):
+                if args[:2] == ('getprop', 'persist.sys.locale'):
+                    return android.locale
+                self.starts += 1
+                self_activity = 'BluetoothSettingsActivity' if self.starts == 1 else 'LocalePickerActivity'
+                android.driver.current_activity = self_activity
+                return ''
+
+        adb = Adb()
+        _set_locale(android, adb, 'phone', 'zh-CN')
+        self.assertEqual(adb.starts, 2)
+        self.assertEqual(android.locale, 'zh-CN')
+        android.capture.assert_called_once_with('locale-wrong-page')
+
+    def test_failed_language_preparation_is_skipped_not_asserted(self):
+        android, adb = Mock(), Mock()
+        adb.shell.return_value = 'en-US'
+        context = {'phone': 'phone', 'config': {'package': 'visionray'}}
+        with patch('cases.g_series.test_foundation._set_locale', side_effect=[RuntimeError('wrong page'), None]), \
+             patch('cases.g_series.test_foundation._install_current'):
+            with self.assertRaisesRegex(pytest.skip.Exception, 'wrong page') as result:
+                _system_language_install(android, adb, context, 'zh-CN', '登录')
+            self.assertEqual(type(result.exception).__name__, 'Skipped')
 
     def test_older_debug_build_is_found_on_detail_page(self):
         current = 'a' * 32

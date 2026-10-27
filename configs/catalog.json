@@ -65,8 +65,16 @@
         "value": "//*[@package=\"com.dpvr.android.app.Occident\" and @text=\"Skip guidance?\"]"
       },
       "pair.skip_confirm": {
-        "by": "xpath",
-        "value": "//*[@resource-id=\"com.dpvr.android.app.Occident:id/tv_confirm\" and @text=\"Yes, skip it\"]"
+        "by": "id",
+        "value": "com.dpvr.android.app.Occident:id/tv_confirm",
+        "requires": {
+          "by": "xpath",
+          "value": "//*[@package='com.dpvr.android.app.Occident' and ((@resource-id='com.dpvr.android.app.Occident:id/tv_title' and contains(@text,'guid')) or (@resource-id='com.dpvr.android.app.Occident:id/tvDesc' and contains(@text,'guide'))) ]"
+        },
+        "fallback": {
+          "by": "xpath",
+          "value": "//*[@package='com.dpvr.android.app.Occident' and @clickable='true' and (@text='Skip' or @text='Yes, skip it')]"
+        }
       },
       "pair.home_title": {
         "by": "id",
@@ -142,40 +150,9 @@
     ]
   },
   "products": {
-    "待归类设备": {
-      "models": {
-        "Vision Ray 1（系统型号，业务归属待确认）": {
-          "configured": false
-        }
-      }
-    },
-    "产品 A（待配置）": {
-      "models": {
-        "型号 A1（待配置）": {
-          "configured": false
-        }
-      }
-    },
-    "产品 B（待配置）": {
-      "models": {
-        "型号 B1（待配置）": {
-          "configured": false
-        }
-      }
-    },
-    "产品 C（待配置）": {
-      "models": {
-        "型号 C1（待配置）": {
-          "configured": false
-        }
-      }
-    },
-    "产品 D（待配置）": {
-      "models": {
-        "型号 D1（待配置）": {
-          "configured": false
-        }
-      }
+    "Nova": {
+      "models": {"Nova": {}},
+      "configured": false
     },
     "G系列": {
       "models": {
@@ -200,6 +177,16 @@
         "pairing": true
       },
       "name_pattern": "DPVR\\s+(G1|G3|G6)_[^\\s]+"
+    },
+    "G7": {
+      "models": {"G7": {"pairing": {"model_label": "Flow Pro Pilot"}}},
+      "configured": true,
+      "capabilities": {"pairing": true},
+      "name_pattern": "DPVR\\s+G7_[^\\s]+"
+    },
+    "G5": {
+      "models": {"G5": {}},
+      "configured": false
     }
   }
 }

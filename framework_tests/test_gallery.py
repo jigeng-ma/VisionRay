@@ -15,6 +15,33 @@ def test_missing_count_after_photo_reports_actual_counts():
             prepare_three_pending_media(page)
 
 
+def test_video_playback_uses_filtered_player_events_and_known_button_position():
+    page = object.__new__(GalleryPage)
+    page.a = Mock(context={'phone': 'phone-1'})
+    page.d = Mock()
+    page.d.get_window_size.return_value = {'width': 1080, 'height': 2340}
+    play = Mock(rect={'x': 40, 'y': 100, 'width': 80, 'height': 60})
+    def element(resource, *_):
+        if resource == 'total_time_tv':
+            return Mock(text='01:01')
+        return play
+    page.one = Mock(side_effect=element)
+    page.a.wait.side_effect = lambda read, *_: read()
+    logs = ['101.000 1 1 D NovaPlayerView: onIsPlayingChanged: isPlaying = true',
+            '104.000 1 1 D NovaPlayerView: onIsPlayingChanged: isPlaying = false']
+    with patch('studio.devices.Adb') as adb, patch('studio.gallery.time.sleep'):
+        adb.return_value.run.return_value = '\n'.join(logs)
+        adb.return_value.shell.side_effect = ['100', '103', '']
+        page.play_pause()
+    play.click.assert_called_once_with()
+    self_calls = [call.args for call in adb.return_value.shell.call_args_list]
+    assert self_calls == [('phone-1', 'date', '+%s'), ('phone-1', 'date', '+%s'),
+                          ('phone-1', 'input', 'tap', '81', '2000')]
+    adb.return_value.run.assert_called_with('-s', 'phone-1', 'logcat', '-d', '-v', 'epoch',
+                                            '-s', 'NovaPlayerView:D')
+    page.one.assert_any_call('play_btn', '暂停后的播放按钮')
+
+
 def test_cam003_reports_missing_watermark_after_processing_window():
     from cases.g_series.test_settings import test_video_watermark
     android, gallery = Mock(unsafe=True), Mock(spec=GalleryPage)

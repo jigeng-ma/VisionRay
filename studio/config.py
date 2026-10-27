@@ -38,7 +38,10 @@ def model_from_name(root, name):
 
 
 def resolve_device(root, product, model, name):
-    if product == 'G系列' or name.strip().upper().startswith('DPVR G'):
+    import re
+    if product == 'G系列':
         model = model_from_name(root, name)
-        product = 'G系列'
-    return resolve(root, product, model)
+    config = resolve(root, product, model)
+    if product == 'G7' and not re.fullmatch(config['name_pattern'], name.strip(), re.IGNORECASE):
+        raise ValueError('G7 蓝牙名称应为完整的 DPVR G7_XXXX，例如 DPVR G7_3EB4。')
+    return config

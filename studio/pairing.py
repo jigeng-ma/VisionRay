@@ -55,47 +55,62 @@ class PairingPage:
         a = self.a
         package = a.context['config']['package']
         # 隐藏入口是开关；先检查，避免下一条配对用例把已显示的型号再次隐藏。
-        a.click('pair.add')
-        destination = a.wait(lambda: 'models' if a.find('pair.models_title') else
-                             ('login' if any(e.is_displayed() for e in a.driver.find_elements(
-                                 'id', package + ':id/tv_login_by_email')) else None),
-                             '型号列表或登录入口', 12)
-        if destination == 'login':
-            # 全新安装或清除数据后，Add Device 会先转到登录页。
-            from .auth import AuthPage
-            AuthPage(a).registered()
-            tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
-            if not tabs:
-                raise TestBlocked('登录后未找到首页导航，无法返回 Add Device。')
-            tabs[0].click()
-            a.click('pair.add')
-        a.element('pair.models_title', 12)
+        self.open_model_list()
         names = self._model_names()
         a.driver.press_keycode(4)
         a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
         if {'DPVR G1', 'DPVR G3', 'DPVR G6'} <= names:
             a.log('enable-g-series-models', 'already visible')
             return
-        tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
-        if len(tabs) < 3:
-            raise TestBlocked('无法返回含“我的”入口的首页，不能启用 G 系列隐藏型号。')
-        tabs[-1].click()
-        a.element('my.about', 12).click()
-        # APP 首击只初始化计时器；后续 10 次、且相邻不足一秒才会切换 G 系列。
-        # 锁定同一控件连续点击，避免逐次查找元素导致点击间隔超时而重新计数。
-        button = a.wait(lambda: next((e for e in a.driver.find_elements('id', package + ':id/tv_version')
-                                      if e.is_displayed() and e.text == 'VisionRay'), None),
-                        'VisionRay 版本入口', 10)
-        for _ in range(11):
-            button.click()
-            time.sleep(.15)
-        a.driver.press_keycode(4)
-        a.wait(lambda: [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()],
-               '从 About App 返回我的页面', 12)
-        tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
-        tabs[0].click()
-        a.wait(lambda: a.find('pair.add'), '返回 Add Device 首页', 12)
-        a.log('enable-g-series-models', 'VisionRay clicked 11 times in rapid succession')
+        for attempt in range(1, 4):
+            tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+            if len(tabs) < 3:
+                raise TestBlocked('无法返回含“我的”入口的首页，不能启用 G 系列隐藏型号。')
+            tabs[-1].click()
+            a.element('my.about', 12).click()
+            # APP 首击只初始化计时器；后续 10 次、且相邻不足一秒才会切换 G 系列。
+            button = a.wait(lambda: next((e for e in a.driver.find_elements('id', package + ':id/tv_version')
+                                          if e.is_displayed() and e.text == 'VisionRay'), None),
+                            'VisionRay 版本入口', 10)
+            for _ in range(11):
+                button.click()
+                time.sleep(.15)
+            a.driver.press_keycode(4)
+            a.wait(lambda: [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()],
+                   '从 About App 返回我的页面', 12)
+            tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+            tabs[0].click()
+            a.wait(lambda: a.find('pair.add'), '返回 Add Device 首页', 12)
+            a.click('pair.add')
+            a.element('pair.models_title', 12)
+            names = self._model_names()
+            a.log('enable-g-series-models', {'attempt': attempt, 'visible': sorted(names)})
+            a.driver.press_keycode(4)
+            a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
+            if {'DPVR G1', 'DPVR G3', 'DPVR G6'} <= names:
+                return
+        raise TestBlocked('连续 3 次开启隐藏型号后仍未显示 DPVR G1/G3/G6；最后可选：' +
+                          ('、'.join(sorted(names)) if names else '无'))
+
+    def open_model_list(self):
+        """G7 与 G1/G3/G6 共用 Add Device 的登录前置。"""
+        a = self.a
+        package = a.context['config']['package']
+        a.click('pair.add')
+        destination = a.wait(lambda: 'models' if a.find('pair.models_title') else
+                             ('login' if any(e.is_displayed() for e in a.driver.find_elements(
+                                 'id', package + ':id/tv_login_by_email')) else None),
+                             '型号列表或登录入口', 12)
+        if destination == 'login':
+            from .auth import AuthPage
+            AuthPage(a).registered()
+            tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+            if not tabs:
+                raise TestBlocked('登录后未找到首页导航，无法返回 Add Device。')
+            tabs[0].click()
+            a.wait(lambda: a.find('pair.add'), '登录后返回 Add Device 首页', 12)
+            a.click('pair.add')
+        a.element('pair.models_title', 12)
 
     def select_model(self, label, retry=True):
         a = self.a
@@ -149,7 +164,12 @@ class PairingPage:
     def prepare_search(self):
         a = self.a
         a.ensure_foreground()
-        # APP 可能保留在相册详情等业务二级页；先回到首页再判断绑定状态。
+        # APP 可能保留在上一条的搜索弹窗、相册等二级页；先回到可识别入口。
+        for _ in range(4):
+            if a.find('pair.add') or a.find('pair.home_title') or a.find('pair.tutorial_title'):
+                break
+            a.driver.press_keycode(4)
+            time.sleep(.3)
         if not (a.find('pair.add') or a.find('pair.home_title') or a.find('pair.tutorial_title')):
             from .home_device import HomeDevicePage
             HomeDevicePage(a).home()
@@ -169,9 +189,10 @@ class PairingPage:
             a.log('pair-cooldown', '解绑后等待 60 秒再搜索')
             time.sleep(60)
         a.capture('unbound-home')
-        self.enable_g_series_models()
-        a.click('pair.add')
-        self.select_model(self.options['model_label'])
+        if a.context['config'].get('product') == 'G系列':
+            self.enable_g_series_models()
+        self.open_model_list()
+        self.select_model(self.options['model_label'], retry=False)
         a.element('pair.prepare_title')
         a.capture('pairing-ready')
         a.click('pair.next')

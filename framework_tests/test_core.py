@@ -10,7 +10,7 @@ from zipfile import ZipFile, ZIP_DEFLATED
 from xml.sax.saxutils import escape
 from studio.workbook import Mapping, inspect, export
 from studio.config import merge
-from studio.runner import execute, RunLock, ordered_plan
+from studio.runner import execute, RunLock, ordered_plan, pairing_result
 from studio.ui import summarize_selected
 
 
@@ -35,7 +35,7 @@ class CoreTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.file = self.root / 'input.xlsx'
-        self.rows = [{'A': '用例编号', 'F': '用例标题', 'L': '实际结果'}, {'A': '001', 'F': '测试', 'L': 'Passed'}]
+        self.rows = [{'A': '用例编号', 'F': '用例标题', 'M': '实际结果'}, {'A': '001', 'F': '测试', 'M': 'Passed'}]
 
     def test_header_rows_duplicates_and_id_only(self):
         fixture(self.file, {'模块': self.rows + [{'A': '001', 'F': '重复'}, {'A': '999'}], '第二行表头': [{'A': '说明'}] + self.rows, '空表': []})
@@ -47,7 +47,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(data['空表']['cases'], [])
 
     def test_export_matches_ids_preserves_source_and_clears_unselected(self):
-        fixture(self.file, {'模块': self.rows + [{'A': '002', 'F': '另一条', 'L': 'Failed'}], '未选': self.rows})
+        fixture(self.file, {'模块': self.rows + [{'A': '002', 'F': '另一条', 'M': 'Failed'}], '未选': self.rows})
         original = self.file.read_bytes()
         target = self.root / 'result.xlsx'
         export(self.file, target, Mapping(), [{'sheet': '模块', 'id': '002', 'status': 'PASS'}])
@@ -60,6 +60,12 @@ class CoreTests(unittest.TestCase):
             export(self.file, target, Mapping(), [])
         with self.assertRaises(ValueError):
             export(self.file, self.root/'bad.xlsx', Mapping(result_col='A'), [])
+
+    def test_result_column_header_mismatch_is_rejected_before_export(self):
+        fixture(self.file, {'模块': [{'A': '用例编号', 'F': '用例标题', 'L': '眼镜固件版本', 'M': '实际结果'},
+                                    {'A': '001', 'F': '测试'}]})
+        with self.assertRaisesRegex(ValueError, '结果列表头在 M 列，当前配置为 L 列'):
+            inspect(self.file, Mapping(result_col='L'))
 
     def test_merge_isolated_overrides(self):
         base = {'capabilities': {'photo': True, 'video': False}, 'values': [1]}
@@ -166,6 +172,23 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(counts['NOT_IMPLEMENTED'], 3)
         self.assertEqual(counts['SKIPPED'], 4)
         self.assertEqual(counts['NOT_RUN'], 0)
+
+    def test_missing_pairing_target_is_execution_error(self):
+        case_dir = self.root / 'evidence'
+        case_dir.mkdir()
+        steps = case_dir / 'steps.jsonl'
+        self.assertEqual(pairing_result('SKIPPED', 'Skipped: APP 连续两次搜索不到目标眼镜 DPVR G6_2831',
+                                        case_dir, 'DPVR G6_2831'),
+                         ('ERROR', '搜索不到目标眼镜 DPVR G6_2831'))
+        self.assertEqual(pairing_result('FAIL', 'WaitTimeout: 等待超时：搜索目标眼镜 DPVR G6_2831（45 秒）',
+                                        case_dir, 'DPVR G6_2831'),
+                         ('ERROR', '搜索不到目标眼镜 DPVR G6_2831'))
+        steps.write_text('{"event":"search-started"}\n{"event":"pair-search-retry"}\n', encoding='utf-8')
+        self.assertEqual(pairing_result('ERROR', '用例超时（90 秒）。', case_dir, 'DPVR G6_2831'),
+                         ('ERROR', '搜索不到目标眼镜 DPVR G6_2831'))
+        steps.write_text('{"event":"search-started"}\n{"event":"target-found"}\n', encoding='utf-8')
+        self.assertEqual(pairing_result('ERROR', '用例超时（90 秒）。', case_dir, 'DPVR G6_2831'),
+                         ('ERROR', '用例超时（90 秒）。'))
 
 
 if __name__ == '__main__':

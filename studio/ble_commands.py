@@ -1,4 +1,4 @@
-"""G1/G3/G6 调试页媒体命令。每次调用只点击一次，不自动重发。"""
+"""G1/G3/G6/G7 调试页媒体命令。每次调用只点击一次，不自动重发。"""
 import time
 import math
 import re
@@ -19,8 +19,9 @@ class BleMediaCommands:
 
     def __init__(self, android):
         config = android.context['config']
-        if config.get('product') != 'G系列' or config.get('model') not in ('G1', 'G3', 'G6'):
-            raise TestBlocked('BLE 媒体命令仅适用于 G1/G3/G6。')
+        if (config.get('product'), config.get('model')) not in (
+                ('G系列', 'G1'), ('G系列', 'G3'), ('G系列', 'G6'), ('G7', 'G7')):
+            raise TestBlocked('BLE 媒体命令仅适用于 G1/G3/G6/G7。')
         self.a = android
         self.package = config['package']
         self._last_click_at = None
@@ -55,7 +56,7 @@ class BleMediaCommands:
                 a.wait(enabled, f'{label} 权限开启', 25)
                 a.log('enable-media-permission', label)
 
-    def open(self):
+    def open(self, action=None):
         """进入 我的 → BLE_COMMAND_TEST，必要时上滑一次显示媒体按钮。"""
         a = self.a
         a.ensure_foreground()
@@ -87,16 +88,17 @@ class BleMediaCommands:
                 raise AssertionError('已开启 Photos 和 Microphone 权限并重试，但 APP 仍返回 Permission 页面，无法进入 BLE_COMMAND_TEST。')
             self._enable_media_permissions()
             a.driver.press_keycode(4)
-        if not all(self._find(resource) for resource, _ in self.BUTTONS.values()):
+        required = ((self.BUTTONS[action],) if action else tuple(self.BUTTONS.values()))
+        if not all(self._find(resource) for resource, _ in required):
             size = a.driver.get_window_size()
             a.driver.swipe(int(size['width'] * .5), int(size['height'] * .78),
                            int(size['width'] * .5), int(size['height'] * .30), 600)
-        a.wait(lambda: all(self._find(resource) for resource, _ in self.BUTTONS.values()),
-               '拍照、录像、录音按钮可见', 10)
+        a.wait(lambda: all(self._find(resource) for resource, _ in required),
+               self.BUTTONS[action][1] + '按钮可见' if action else '拍照、录像、录音按钮可见', 10)
         return self
 
     def _click(self, action):
-        self.open()
+        self.open(action)
         resource, label = self.BUTTONS[action]
         button = self.a.wait(lambda: self._find(resource), label, 10)
         if button.text != label or not button.is_enabled():
@@ -154,7 +156,7 @@ class BleMediaCommands:
                        else ('System Settings', 'Recording Duration'))
         self.a.ensure_foreground()
         if self.a.find('pair.add'):
-            raise TestBlocked('请先连接 G1/G3/G6 眼镜，再校验录制时长。')
+            raise TestBlocked('请先连接目标眼镜，再校验录制时长。')
         HomeDevicePage(self.a).setting(page)
         current = self._read_duration(label)
         if current is not None and current >= duration:

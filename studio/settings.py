@@ -180,7 +180,11 @@ class SettingsPage:
             "//*[@text='OK' or @text='Confirm']") if e.is_displayed() and e.is_enabled()), None), '确认按钮', 10)
         button.click()
         if success:
-            self.home.text(success, 20)
+            # Android Toast 属于系统窗口，不带 APP package；限定包名会漏掉真实成功提示。
+            from xml.etree import ElementTree as ET
+            self.a.wait(lambda: any(node.get('text') == success
+                                    for node in ET.fromstring(self.a.driver.page_source).iter()),
+                        success, 20, handle_popups=False)
 
     def factory_reset(self):
         self.confirm('factory_reset', 'Factory reset successful')

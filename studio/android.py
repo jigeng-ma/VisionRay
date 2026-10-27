@@ -122,7 +122,13 @@ class Android:
 
     def find(self, key):
         spec = self.context['config']['elements'][key]
+        required = spec.get('requires')
+        if required and not any(e.is_displayed() for e in self.driver.find_elements(required['by'], required['value'])):
+            return None
         found = [e for e in self.driver.find_elements(spec['by'], spec['value']) if e.is_displayed()]
+        if not found and spec.get('fallback'):
+            fallback = spec['fallback']
+            found = [e for e in self.driver.find_elements(fallback['by'], fallback['value']) if e.is_displayed()]
         if len(found) > 1:
             raise AssertionError(f'元素 {key} 匹配到 {len(found)} 项，请增加定位范围。')
         return found[0] if found else None
@@ -144,6 +150,8 @@ class Android:
                     if result:
                         return result
                 except (StaleElementReferenceException, WebDriverException) as exc:
+                    if 'instrumentation process is not running' in str(exc):
+                        raise RuntimeError('UiAutomator2 服务进程已退出，当前会话无法继续读取页面。') from exc
                     self.log('transient-driver-error', str(exc).splitlines()[0])
                 time.sleep(.3)
             raise WaitTimeout(f'等待超时：{label}（{timeout} 秒），请查看 XML 和截图。')

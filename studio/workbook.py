@@ -35,7 +35,7 @@ def colnum(value):
 class Mapping:
     header_row: int = 0  # 0 自动识别每个 Sheet 的表头
     id_col: str = 'A'
-    result_col: str = 'L'
+    result_col: str = 'M'
 
     def validate(self):
         if self.header_row < 0:
@@ -127,7 +127,21 @@ def inspect(path, mapping):
         shared = strings(z)
         for name, part, state in parts(z):
             try:
-                module = read_sheet(z.read(part).decode('utf-8'), shared, mapping)
+                xml = z.read(part).decode('utf-8')
+                module = read_sheet(xml, shared, mapping)
+                if module['cases'] and module['header']:
+                    header = next((row.group() for row in ROW.finditer(xml)
+                                   if int(row[1]) == module['header']), '')
+                    labels = {}
+                    for cell in CELL.finditer(header):
+                        address = re.search(r'\br="([A-Z]+)\d+"', cell.group())
+                        if address:
+                            labels[address[1]] = value(cell.group(), shared)[0]
+                    actual = next((col for col, label in labels.items()
+                                   if label in ('实际结果', '测试结果', '执行结果')), None)
+                    if actual and actual != mapping.result_col.upper():
+                        raise ValueError(f'结果列表头在 {actual} 列，当前配置为 {mapping.result_col.upper()} 列；'
+                                         f'请将结果列改为 {actual}，避免覆盖其他字段。')
             except ValueError as exc:
                 raise ValueError(f'Sheet「{name}」：{exc}') from exc
             for case in module['cases']:

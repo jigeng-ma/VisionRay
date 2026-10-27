@@ -3,6 +3,7 @@
 from collections import Counter, defaultdict
 from html import escape
 from pathlib import Path
+import json
 import re
 
 from .workbook import LABELS
@@ -22,6 +23,10 @@ STATUS_GROUP = {status: name for _, statuses, name in GROUPS for status in statu
 
 def _brief(detail):
     lines = [line.strip() for line in str(detail or '').splitlines() if line.strip()]
+    assertion = next((line[2:].split('AssertionError:', 1)[1].strip()
+                      for line in lines if line.startswith('E ') and 'AssertionError:' in line), None)
+    if assertion:
+        return assertion[:220]
     error = next((line[2:].strip() for line in reversed(lines) if line.startswith('E ')), None)
     if error:
         return error[:220]
@@ -33,6 +38,10 @@ def _brief(detail):
 
 def write_report(folder, run_id, context, records, entries):
     folder = Path(folder)
+    manifest = folder / 'manifest.json'
+    if manifest.is_file():
+        selected = set(json.loads(manifest.read_text(encoding='utf-8'))['selected'])
+        records = [record for record in records if record['sheet'] in selected]
     totals = Counter(record['status'] for record in records)
     modules = defaultdict(Counter)
     for record in records:
@@ -62,7 +71,9 @@ def write_report(folder, run_id, context, records, entries):
         evidence = folder / 'evidence' / automation_id if automation_id else None
         evidence_text = escape(automation_id) if automation_id else '—'
         if evidence and evidence.is_dir():
-            evidence_text = f'<a href="evidence/{escape(automation_id, quote=True)}/">{evidence_text}</a>'
+            evidence_text = (f'<a href="evidence/{escape(automation_id, quote=True)}/" target="_blank" '
+                             f'onclick="return !window.open(this.href, \'_blank\', \'popup=yes,width=1200,height=800\')">'
+                             f'{evidence_text}</a>')
         detail = str(record.get('detail') or '')
         if detail:
             brief = escape(_brief(detail))
@@ -107,7 +118,7 @@ a{{color:var(--blue)}}details summary{{cursor:pointer;max-width:850px;overflow-w
 <select id="module"><option value="">全部模块</option>{options}</select><select id="status"><option value="">全部状态</option>{status_options}</select></div>
 <p class="shown" id="shown"></p><div class="scroll"><table><thead><tr><th>模块</th><th>用例编号</th><th>自动化编号 / 证据</th><th>状态</th><th>说明</th></tr></thead>
 <tbody id="cases">{''.join(detail_rows)}</tbody></table></div>
-<p class="note">点击自动化编号在当前页面打开同名证据目录；点击说明可展开完整异常。未实现、未执行等状态在 Excel 中保留为空。</p></section>
+<p class="note">点击自动化编号将在当前浏览器的新窗口打开同名证据目录；点击说明可展开完整异常。未实现、未执行等状态在 Excel 中保留为空。</p></section>
 </main><script>
 const search=document.getElementById('search'),module=document.getElementById('module'),status=document.getElementById('status');
 const rows=[...document.querySelectorAll('#cases tr')];

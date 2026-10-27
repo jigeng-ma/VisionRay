@@ -2,8 +2,8 @@
 
 import pytest
 
-from studio.errors import TestBlocked
-from studio.firmware_ota import FirmwareUpdatePage, choose_target, prepare_target
+from studio.errors import TestBlocked, WaitTimeout
+from studio.firmware_ota import FirmwareUpdatePage, choose_target, prepare_target, clear_target
 
 
 def run(android, action, preserve_popup=False):
@@ -11,7 +11,7 @@ def run(android, action, preserve_popup=False):
     if preserve_popup:
         android.popups.preserve.add("firmware_update")
     try:
-        action()
+        return action()
     except TestBlocked as exc:
         android.capture("firmware-ota-blocked")
         pytest.skip(str(exc))
@@ -24,42 +24,64 @@ def _restart_app(android):
 
 
 def _manual_update(android, firmware):
+    FirmwareUpdatePage(android).dismiss_stale_startup_popup()
     before, target, direction = choose_target(android, firmware)
-    prepare_target(target["task_id"], mandatory=False)
-    page = FirmwareUpdatePage(android)
-    page.open()
-    page.start()
-    page.wait_for_completion(target["version"], before, direction, firmware=firmware)
+    try:
+        prepare_target(target["task_id"], mandatory=False)
+        page = FirmwareUpdatePage(android)
+        page.open()
+        page.start()
+        return page.wait_for_completion(target["version"], before, direction, firmware=firmware)
+    finally:
+        clear_target(target["task_id"])
 
 
 def _startup_update(android, firmware, mandatory):
+    FirmwareUpdatePage(android).dismiss_stale_startup_popup()
     before, target, direction = choose_target(android, firmware)
-    prepare_target(target["task_id"], mandatory=mandatory)
-    if not mandatory:
-        # 非强制提示通常只在新装 APP 登录并重新绑定眼镜后触发。
-        from studio.auth import AuthPage, install_auth_variant
-        from studio.home_device import HomeDevicePage
-        install_auth_variant(android, android.context, 'debug')
-        android.ensure_foreground()
-        AuthPage(android).registered()
-        HomeDevicePage(android).home()
-    _restart_app(android)
-    page = FirmwareUpdatePage(android)
     try:
-        page.startup_popup(mandatory)
-    except AssertionError:
-        if mandatory:
-            raise
-        raise AssertionError("非强制升级弹窗未出现；请检查启动时弹窗证据。")
-    page.wait_for_completion(target["version"], before, direction, firmware=firmware)
+        prepare_target(target["task_id"], mandatory=mandatory)
+        if not mandatory:
+            # 非强制提示通常只在新装 APP 登录并重新绑定眼镜后触发。
+            from studio.auth import AuthPage, install_auth_variant
+            from studio.home_device import HomeDevicePage
+            install_auth_variant(android, android.context, 'debug')
+            android.ensure_foreground()
+            AuthPage(android).registered()
+            try:
+                HomeDevicePage(android).home()
+            except WaitTimeout:
+                if not FirmwareUpdatePage(android).has_startup_popup():
+                    raise
+        if not FirmwareUpdatePage(android).has_startup_popup():
+            _restart_app(android)
+        page = FirmwareUpdatePage(android)
+        try:
+            page.startup_popup(mandatory)
+        except AssertionError:
+            if mandatory:
+                raise
+            raise AssertionError("非强制升级弹窗未出现；请检查启动时弹窗证据。")
+        def finish_notification():
+            clear_target(target['task_id'])
+            android.restart()
+        page.wait_for_completion(target["version"], before, direction, firmware=firmware,
+                                 after_outcome=finish_notification)
+    finally:
+        try:
+            clear_target(target["task_id"])
+        finally:
+            _restart_app(android)
 
 
 def test_bluetooth_firmware_update(android):
     run(android, lambda: _manual_update(android, "bluetooth"))
 
 
-def test_wifi_firmware_update(android):
-    run(android, lambda: _manual_update(android, "wifi"))
+def test_wifi_firmware_update(android, request):
+    detail = run(android, lambda: _manual_update(android, "wifi"))
+    if detail:
+        request.node.user_properties.append(('studio_detail', detail))
 
 
 def test_bluetooth_forced_update_on_start(android):

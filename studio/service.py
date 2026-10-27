@@ -15,21 +15,37 @@ def status():
         return False
 
 
+def environment(name):
+    value = os.environ.get(name)
+    if value or os.name != 'nt':
+        return value
+    # 已打开的工作台进程不会自动继承稍后设置的用户环境变量。
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, 'Environment') as key:
+            return winreg.QueryValueEx(key, name)[0]
+    except OSError:
+        return None
+
+
 def start(root):
     if status():
         return 'Appium 已就绪（127.0.0.1:4723）。'
     root = Path(root)
     config = json.loads((root/'configs/environment.json').read_text(encoding='utf-8'))
-    sdk = config.get('android_sdk') or os.environ.get('ANDROID_HOME', '')
-    if not (Path(sdk)/'platform-tools/adb.exe').exists():
-        raise RuntimeError('Android SDK 未配置，请修改 configs/environment.json 中的 android_sdk。')
+    sdk = next((value for value in (environment('ANDROID_SDK_ROOT'), environment('ANDROID_HOME'),
+                                    config.get('android_sdk'))
+                if value and (Path(value)/'platform-tools/adb.exe').is_file()), None)
+    if not sdk:
+        raise RuntimeError('未找到 Android SDK；请设置 ANDROID_SDK_ROOT 或 ANDROID_HOME，或修改 configs/environment.json。')
     command = shutil.which('appium.cmd') or shutil.which('appium')
     if not command:
         raise RuntimeError('未找到 Appium，请先安装 Appium 及 UiAutomator2 驱动。')
     env = os.environ.copy()
     env.update(ANDROID_HOME=sdk, ANDROID_SDK_ROOT=sdk)
-    if config.get('java_home'):
-        env['JAVA_HOME'] = config['java_home']
+    java = environment('JAVA_HOME') or config.get('java_home')
+    if java and (Path(java)/'bin/java.exe').is_file():
+        env['JAVA_HOME'] = java
     (root/'runs').mkdir(exist_ok=True)
     log_path = root / 'runs/appium-service.log'
     with log_path.open('a', encoding='utf-8') as log:

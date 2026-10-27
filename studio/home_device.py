@@ -1,6 +1,6 @@
 """G 系列首页和设备管理的公共页面动作。"""
 import time
-from studio.errors import TestBlocked
+from studio.errors import TestBlocked, WaitTimeout
 
 
 class HomeDevicePage:
@@ -13,13 +13,19 @@ class HomeDevicePage:
         xpath = f"//*[@package='{self.package}' and @text={value!r}]"
         return self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath', xpath) if e.is_displayed()), None), value, timeout)
 
-    def home(self):
+    def _bound_names(self):
+        return [e.text.strip() for e in self.a.driver.find_elements('id', self.package + ':id/tv_device_name')
+                if e.is_displayed() and e.text.strip()]
+
+    def home(self, require_target=True):
         self.a.ensure_foreground()
-        from .firmware_ota import leave_failed_update
+        from .firmware_ota import leave_completed_update, leave_failed_update
+        leave_completed_update(self.a)
         leave_failed_update(self.a)
         # 每条业务用例都从已绑定首页开始。引导、型号页、Add Device 页面是前序
         # 用例正常留下的状态，统一在这里恢复，避免把前置状态误报成业务失败。
         for _ in range(6):
+            leave_completed_update(self.a)
             leave_failed_update(self.a)
             if self.a.find('pair.skip_title'):
                 self.a.click('pair.skip_confirm')
@@ -41,7 +47,19 @@ class HomeDevicePage:
                     pairing.options['skip_tutorial'] = original
                     pairing.options['require_pairing_prompt'] = original_prompt
             elif self.a.find('pair.home_title'):
-                break
+                if not require_target or self.name in self._bound_names():
+                    break
+                if self._bound_names():
+                    from .pairing import PairingPage
+                    PairingPage(self.a).run()
+                else:
+                    # The home header renders before the device card / Add Device state.
+                    # Do not classify this brief loading state as a failed OTA test.
+                    try:
+                        self.a.wait(lambda: self.name in self._bound_names() or self.a.find('pair.add'),
+                                    '首页加载目标眼镜或未绑定入口', 20)
+                    except WaitTimeout as exc:
+                        raise TestBlocked('首页未显示目标眼镜或 Add Device 入口：' + self.name) from exc
             else:
                 tabs = [e for e in self.a.driver.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()]
                 if tabs:
@@ -50,7 +68,7 @@ class HomeDevicePage:
                     self.a.driver.press_keycode(4)
             time.sleep(.5)
         title = self.a.element('pair.home_title', 20)
-        if not title or not self.text(self.name, 5):
+        if not title or (require_target and self.name not in self._bound_names()):
             raise TestBlocked('未处于目标眼镜已连接首页：' + self.name)
 
     def _labeled(self, resource, label):
@@ -62,8 +80,8 @@ class HomeDevicePage:
     def card(self, label):
         self.home(); self._labeled('tv_grid_title', label).click(); self.a.log('click-card', label)
 
-    def setting(self, label):
-        self.home()
+    def setting(self, label, require_target=True):
+        self.home(require_target=require_target)
         # 不同 APP 版本首页显示 System 或 System Settings，详情页仍叫 System Settings。
         if label == 'System Settings':
             items = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_list_title')
@@ -130,8 +148,7 @@ class HomeDevicePage:
         if a.find('pair.tutorial_begin'):
             a.click('pair.skip'); a.element('pair.skip_title'); a.click('pair.skip_confirm')
             a.wait(lambda: a.find('pair.home_title'), '跳过现有引导回到首页', 15)
-        self.home()
-        self.setting('System Settings')
+        self.setting('System Settings', require_target=False)
         button = None
         for _ in range(8):
             choices = [e for e in a.driver.find_elements('xpath',

@@ -130,15 +130,16 @@ class AuthPage:
         if start < 0:
             raise TestBlocked(f'登录页未显示协议链接：{label}')
         rect = text.rect
-        # 文本链接没有独立资源 ID 时，按链接在整行中的字符位置点击。
-        x = int(rect['x'] + rect['width'] * (start + len(label) / 2) / len(content))
-        y = int(rect['y'] + rect['height'] / 2)
+        # 两行 TextView 的 Privacy Policy 在第二行左侧；整行字符比例会点到空白处。
+        x_ratio, y_ratio = ((.15, .75) if label == 'Privacy Policy' else (.65, .25))
+        x = int(rect['x'] + rect['width'] * x_ratio)
+        y = int(rect['y'] + rect['height'] * y_ratio)
         self.d.execute_script('mobile: clickGesture', {'x': x, 'y': y})
 
     def assert_page_title(self, title):
         def visible_privacy_page():
             # 协议页由系统浏览器承载时，不属于 App package；页面地址仍可作为加载成功信号。
-            return any(e.is_displayed() and (
+            return self.d.current_package != self.package and any(e.is_displayed() and (
                 title.lower() in e.text.lower() or 'rs.dpaiglasses.com' in e.text.lower()
             ) for e in self.d.find_elements('xpath', '//*[@text]'))
 
@@ -172,6 +173,20 @@ class AuthPage:
         self.a.ensure_foreground()
         from .firmware_ota import leave_failed_update
         leave_failed_update(self.a)
+        # A previous pairing attempt can leave the device-not-found dialog on screen.
+        # Close it before looking for account navigation.
+        missing = [e for e in self.d.find_elements('id', self.package + ':id/tv_not_found_title')
+                   if e.is_displayed()]
+        if missing:
+            cancel = [e for e in self.d.find_elements('id', self.package + ':id/btn_cancel')
+                      if e.is_displayed() and e.text == 'Cancel']
+            if len(cancel) == 1:
+                cancel[0].click()
+                for _ in range(3):
+                    if self.has('tabIcon') or self.has('tv_login_by_email'):
+                        break
+                    self.d.back()
+                    self.settle()
         if self.a.find('pair.binding_failed'):
             buttons = [e for e in self.d.find_elements('id', self.package + ':id/btn_primary')
                        if e.is_displayed() and e.text == 'OK']
@@ -182,6 +197,10 @@ class AuthPage:
             'back_iv', 'tv_cancel')), '账号流程页面加载完成', 25)
         for _ in range(9):
             self.leave_pending_guide()
+            if self.has('tv_cancel') and 'ID Verification' in self.d.page_source:
+                self.click('tv_cancel')
+                self.settle()
+                continue
             if self.has('tv_login_by_email'):
                 self.click('tv_skip')
                 self.a.wait(lambda: self.has('tabIcon'), 'Skip 后主页面', 15)
@@ -352,6 +371,34 @@ class AuthPage:
             if body.get('success') is False and isinstance(body.get('message'), str):
                 messages.append(body['message'])
         return messages[-1] if messages else ''
+
+    def deletion_code_result(self, since, code):
+        """读取本次注销验证码校验的业务结果，避免短暂 Toast 被 UI 轮询漏掉。"""
+        adb = Adb()
+        phone = self.a.context['phone']
+        pid = adb.shell(phone, 'pidof', self.package).split()[0]
+        log = adb.run('-s', phone, 'logcat', '--pid=' + pid, '-d', '-v', 'epoch', '-t', '5000')
+        pending = {}
+        for line in log.splitlines():
+            match = re.match(r'\s*(\d+\.\d+)\s+\d+\s+(\d+)\s+[A-Z]\s+OKHttp\s*:\s*(.*)', line)
+            if not match or float(match[1]) < since:
+                continue
+            thread, text = match[2], match[3]
+            if text.startswith('--> POST ') and '/email/verifyCode' in text:
+                pending[thread] = 'request'
+            elif text.startswith('<-- ') and '/email/verifyCode' in text:
+                pending[thread] = 'response' if pending.get(thread) == 'matched' else None
+            elif text.startswith('{') and pending.get(thread) in ('request', 'response'):
+                try:
+                    body = json.loads(text)
+                except ValueError:
+                    continue
+                if pending[thread] == 'request':
+                    pending[thread] = ('matched' if str(body.get('operation')) == '4' and
+                                       body.get('email') == self.email and body.get('code') == code else None)
+                elif isinstance(body.get('success'), bool):
+                    return {key: body.get(key) for key in ('success', 'errorCode', 'message')}
+        return None
 
     def request_code(self, trigger):
         """每个测试动作只允许一次发码，避免自动重试耗尽日配额。"""

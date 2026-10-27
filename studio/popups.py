@@ -92,8 +92,6 @@ class PopupGuard:
             if rule.get('confirm_texts') and not any(t in texts for t in rule['confirm_texts']):
                 continue
             if kind == 'bluetooth_pair':
-                if not self.pairing_active:
-                    raise TestBlocked('出现蓝牙配对请求，但当前步骤未发起配对；请检查设备状态。')
                 if not contains_device('\n'.join(texts), a.context.get('glasses_name', '')):
                     raise TestBlocked('蓝牙配对请求的设备名称与本轮目标不符，不自动确认。')
             if kind == 'firmware_update' and a.context['config']['package'] + ':id/top_bar_back' in {

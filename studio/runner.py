@@ -1,5 +1,6 @@
 import collections
 import hashlib
+import html
 import json
 import os
 import re
@@ -23,8 +24,78 @@ def ordered_plan(cases, selected, entries):
                   entries.get((case['sheet'], case['id']), {}).get('execution_order', 100000), case['row']))
 
 
+def case_applies(item, config):
+    return (not item.get('models') or config['model'] in item['models']) and (not item.get('products') or config['product'] in item['products'])
+
+
 def save_json(path, data):
     Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def unbind_before_reinstall(root, context, adb, emit):
+    """卸载现有 APP 前尽量解除当前眼镜绑定。"""
+    package = context['config']['package']
+    if 'package:' not in adb.shell(context['phone'], 'pm', 'path', package):
+        return
+    from .service import start
+    from .android import Android
+    from .home_device import HomeDevicePage
+    emit('service', '卸载前检查眼镜绑定状态…')
+    android = None
+    binding_confirmed = False
+    try:
+        start(root)
+        android = Android(context).connect()
+        android.ensure_foreground()
+        page = HomeDevicePage(android)
+        for _ in range(7):
+            if android.find('pair.add') or android.find('pair.models_title'):
+                emit('service', '当前未绑定眼镜，继续安装。')
+                return
+            if android.find('pair.home_title') or android.find('pair.tutorial_begin'):
+                binding_confirmed = True
+                page.unbind()
+                emit('service', '已解绑眼镜，继续安装。')
+                return
+            source = android.driver.page_source
+            if any(f'{package}:id/{marker}' in source for marker in
+                   ('tv_login_by_email', 'll_user_privacy', 'tvPolicyTitle')):
+                emit('service', 'APP 尚未登录或仍在首次启动页，继续安装。')
+                return
+            android.driver.press_keycode(4)
+            time.sleep(.4)
+        emit('service', '卸载前无法确认眼镜绑定状态，继续卸载安装。')
+    except Exception as exc:
+        if binding_confirmed:
+            raise
+        emit('service', f'卸载前无法确认眼镜绑定状态（{exc}），继续卸载安装。')
+    finally:
+        if android is not None:
+            android.close()
+
+
+def pairing_result(status, detail, case_dir, glasses_name):
+    """仅将确实停在目标眼镜搜索阶段的结果标记为执行异常。"""
+    missing = '搜索不到目标眼镜' in detail or any(
+        f'{label}{glasses_name}' in detail
+        for label in ('等待超时：搜索目标眼镜 ', '等待超时：重搜目标眼镜 ')
+    )
+    if not missing and status == 'ERROR' and detail.startswith('用例超时'):
+        steps = case_dir / 'steps.jsonl'
+        if steps.is_file():
+            search_events = ('search-started', 'pair-search-retry', 'target-found', 'bind')
+            last = None
+            for line in steps.read_text(encoding='utf-8').splitlines():
+                try:
+                    event = json.loads(line).get('event')
+                except ValueError:
+                    continue
+                if event in search_events:
+                    last = event
+            missing = last in search_events[:2]
+    if missing:
+        return 'ERROR', f'搜索不到目标眼镜 {glasses_name}'
+    return status, detail
 
 
 def write_report(folder, run_id, context, records, entries):
@@ -61,6 +132,30 @@ def registry(root, product=None):
             if owner:
                 item['products'] = [owner]
             found[key] = item
+    # 新工作簿将同型号的各模块合并在一个 Sheet；保留旧 Sheet 键以兼容历史工作簿。
+    if product in ('G系列', 'G7'):
+        aliases = {'G00_登录注册': 'APP_注册登录'}
+        model_sheet = 'G7' if product == 'G7' else 'G1_G3_G6'
+        for (sheet, case_id), item in list(found.items()):
+            if sheet == '基础项':
+                continue
+            if sheet == 'G00_登录注册':
+                target_sheet = aliases[sheet]
+            else:
+                if product == 'G7' and item.get('models') == ['G7']:
+                    pass
+                elif product == 'G系列' and item.get('models') == ['G7']:
+                    continue
+                target_sheet = model_sheet
+            alias = dict(item, sheet=target_sheet)
+            if target_sheet in ('G1_G3_G6', 'G7'):
+                # 合并 Sheet 的行顺序就是执行顺序；旧模块的优先级不能跨模块混排。
+                alias.pop('execution_order', None)
+            if product == 'G7' and target_sheet == 'G7':
+                alias['models'] = ['G7']
+            elif product == 'G系列' and target_sheet == 'G1_G3_G6' and item.get('models'):
+                alias['models'] = [model for model in item['models'] if model in ('G1', 'G3', 'G6')]
+            found[(target_sheet, case_id)] = alias
     return found
 
 
@@ -97,12 +192,131 @@ def execute(root, source, mapping, selected, context, stop, emit, timeout=180):
         return _execute(root, source, mapping, selected, context, stop, emit, timeout)
 
 
+def sheet_runs(selected, contexts, sheet_targets=None):
+    """按工作簿顺序分组；相邻且使用同一设备的 Sheet 共用一次执行轮次。"""
+    if sheet_targets is None:
+        return [(context, list(selected)) for context in contexts]
+    if set(sheet_targets) != set(selected):
+        raise ValueError('请为每个已选 Sheet 指定执行设备。')
+    groups = []
+    for sheet in selected:
+        index = sheet_targets[sheet]
+        if not isinstance(index, int) or not 0 <= index < len(contexts):
+            raise ValueError(f'{sheet} 指定的执行设备已从队列移除，请重新选择。')
+        if groups and groups[-1][0] == index:
+            groups[-1][1].append(sheet)
+        else:
+            groups.append((index, [sheet]))
+    return [(contexts[index], sheets) for index, sheets in groups]
+
+
+def execute_many(root, source, mapping, selected, contexts, stop, emit, timeout=180, sheet_targets=None):
+    """同一手机按 Sheet 顺序串行运行；前一组失败不影响下一组。"""
+    root = Path(root).resolve()
+    if not contexts:
+        raise ValueError('型号执行队列为空。')
+    batch_id = datetime.now().strftime('%Y%m%d_%H%M%S') + '_' + uuid.uuid4().hex[:8]
+    batch_folder = root / 'runs' / 'batches' / batch_id
+    batch_folder.mkdir(parents=True)
+    modules = inspect(source, mapping)
+    runs = sheet_runs(selected, contexts, sheet_targets)
+    total = sum(len(modules[sheet]['cases']) for sheet in selected) * (len(contexts) if sheet_targets is None else 1)
+    results = []
+    case_results = []
+    summary = collections.defaultdict(collections.Counter)
+    emit('batch_start', {'folder': str(batch_folder), 'total': total, 'models': len(runs)})
+    with RunLock(root):
+        for index, (context, run_sheets) in enumerate(runs, 1):
+            if stop.is_set():
+                break
+            model = context['config']['model']
+            emit('model_start', f'{index}/{len(runs)}  {model} · {context["glasses_name"]} · {", ".join(run_sheets)}')
+            def forward(kind, value):
+                if kind == 'run':
+                    emit('model_run', dict(value, model=model))
+                elif kind == 'exporting':
+                    emit('service', f'{model}：正在生成结果文件…')
+                elif kind in ('case', 'case_start'):
+                    emit(kind, dict(value, model=model))
+                elif kind == 'service':
+                    emit(kind, f'{model}：{value}')
+                else:
+                    emit(kind, value)
+            try:
+                entries = registry(root, context['config']['product'])
+                applicable = any((item := entries.get((sheet, case['id']))) and case_applies(item, context['config'])
+                                 for sheet in run_sheets for case in modules[sheet]['cases'])
+                if not applicable:
+                    row = {'model': model, 'glasses_name': context['glasses_name'],
+                           'status': 'NOT_IMPLEMENTED', 'folder': '',
+                           'error': '所选模块暂无适用于此型号的自动化用例。', 'summary': {}, 'export': 'SKIPPED'}
+                    emit('model_error', f'{model}：所选模块暂无适用的自动化用例，继续下一个型号。')
+                else:
+                    result = _execute(root, source, mapping, run_sheets, context, stop, forward, timeout)
+                    manifest = result['manifest']
+                    row = {'model': model, 'glasses_name': context['glasses_name'],
+                           'status': manifest['state'], 'folder': result['folder'],
+                           'error': manifest.get('error') or '', 'summary': result['summary'],
+                           'export': manifest.get('export')}
+                    for sheet in run_sheets:
+                        summary[sheet].update(result['summary'].get(sheet, {}))
+                    result_file = Path(result['folder']) / 'results.json'
+                    if result_file.is_file():
+                        for case_result in json.loads(result_file.read_text(encoding='utf-8')):
+                            if case_result['sheet'] not in run_sheets:
+                                continue
+                            entry = entries.get((case_result['sheet'], case_result['id']), {})
+                            case_results.append(dict(case_result, model=model,
+                                                     glasses_name=context['glasses_name'],
+                                                     automation_id=entry.get('automation_id', ''),
+                                                     run_folder=result['folder']))
+            except Exception as exc:
+                row = {'model': model, 'glasses_name': context['glasses_name'],
+                       'status': 'ERROR', 'folder': '', 'error': str(exc), 'summary': {}, 'export': 'ERROR'}
+                emit('model_error', f'{model}：启动或准备失败：{exc}；继续下一个型号。')
+            row['sheets'] = run_sheets
+            results.append(row)
+            save_json(batch_folder / 'batch.json', {'models': results, 'selected': selected,
+                                                    'cases': case_results})
+    rows = []
+    for row in results:
+        report = (f'<a href="../../{html.escape(Path(row["folder"]).name)}/report.html">打开报告</a>'
+                  if row['folder'] else '')
+        counts = collections.Counter()
+        for sheet in selected:
+            counts.update(row['summary'].get(sheet, {}))
+        rows.append('<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>'.format(
+            *[html.escape(str(value)) for value in (row['model'], row['glasses_name'], row['status'],
+                counts.get('PASS', 0), counts.get('FAIL', 0) + counts.get('ERROR', 0), row['error'])], report))
+    detail_rows = []
+    for case in case_results:
+        report = f'../../{html.escape(Path(case["run_folder"]).name, quote=True)}/report.html'
+        values = (case['model'], case['glasses_name'], case['sheet'], case['id'],
+                  case['automation_id'], case['status'], case['detail'])
+        detail_rows.append('<tr>' + ''.join(f'<td>{html.escape(str(value))}</td>' for value in values)
+                           + f'<td><a href="{report}">打开报告</a></td></tr>')
+    (batch_folder / 'report.html').write_text(
+        '<!doctype html><meta charset="utf-8"><title>多型号串行执行结果</title>'
+        '<h1>多型号串行执行结果</h1><table border="1" cellpadding="8">'
+        '<tr><th>型号</th><th>眼镜</th><th>状态</th><th>通过</th><th>失败/异常</th><th>原因</th><th>报告</th></tr>'
+        + ''.join(rows) + '</table><h2>用例明细</h2><table border="1" cellpadding="8">'
+        '<tr><th>型号</th><th>眼镜</th><th>模块</th><th>用例编号</th><th>自动化编号</th>'
+        '<th>状态</th><th>说明</th><th>报告</th></tr>'
+        + ''.join(detail_rows) + '</table>', encoding='utf-8')
+    manifest = {'state': 'INTERRUPTED' if stop.is_set() else 'COMPLETED',
+                'export': 'SUCCESS' if all(r['export'] in ('SUCCESS', 'SKIPPED') for r in results) else 'ERROR',
+                'export_error': '部分型号未生成结果；详见批次报告。',
+                'model_errors': [r for r in results if r['status'] == 'ERROR']}
+    return {'folder': str(batch_folder), 'summary': {k: dict(v) for k, v in summary.items()},
+            'manifest': manifest, 'models': results, 'cases': case_results}
+
+
 def _execute(root, source, mapping, selected, context, stop, emit, timeout):
     # 执行入口再次解析，防止绕过窗口时使用与名称不符的型号配置。
-    if context.get('config', {}).get('product') == 'G系列' or context.get('glasses_name', '').upper().startswith('DPVR G'):
-        from .config import resolve_device
-        old = context['config']
-        config = resolve_device(root, old.get('product'), old.get('model'), context['glasses_name'])
+    from .config import resolve_device
+    old = context.get('config', {})
+    if old.get('product'):
+        config = resolve_device(root, old['product'], old.get('model'), context['glasses_name'])
         config['pairing']['skip_tutorial'] = old.get('pairing', {}).get('skip_tutorial', False)
         context = dict(context, config=config)
     input_hash = hashlib.sha256(Path(source).read_bytes()).hexdigest()
@@ -139,6 +353,7 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
         filename = version
         safe_version = ''.join(c if c.isalnum() or c in '.-_' else '_' for c in filename)
         apk = download(build_key, root / 'work' / 'downloads' / f'VisionRay-{safe_version}.apk')
+        unbind_before_reinstall(root, context, adb, emit)
         emit('service', f'正在卸载旧包并安装 {version} {variant} APP…')
         install(context['phone'], apk, context['config']['package'])
         installed = adb.shell(context['phone'], 'dumpsys', 'package', context['config']['package'])
@@ -189,7 +404,7 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                 if not adb.online(context['phone']) or (context.get('glasses') and not adb.online(context['glasses'])):
                     fatal = '所选设备断开，停止本轮后续执行。'
                     status, detail = 'ERROR', fatal
-                elif (item.get('models') and context['config']['model'] not in item['models']) or (item.get('products') and context['config'].get('product') not in item['products']):
+                elif not case_applies(item, context['config']):
                     status, detail = 'NOT_APPLICABLE', '本轮选择的产品型号与该用例不符。'
                 elif item.get('glasses_adb_required', True) and not context.get('glasses'):
                     status, detail = 'BLOCKED', '该用例需要眼镜 USB/ADB 连接，请选择眼镜设备。'
@@ -261,6 +476,10 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                                         pass
                                 except Exception as exc:
                                     (case_dir/'session-cleanup.txt').write_text(str(exc), encoding='utf-8')
+                    before_pairing = (status, detail)
+                    status, detail = pairing_result(status, detail, case_dir, context['glasses_name'])
+                    if (status, detail) != before_pairing:
+                        save_json(case_dir / 'result.json', {'status': status, 'detail': detail})
                     if status in ('FAIL', 'ERROR'):
                         adb.evidence(context['phone'], case_dir)
             duration = time.monotonic() - start

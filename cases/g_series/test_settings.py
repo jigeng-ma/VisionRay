@@ -88,8 +88,7 @@ def test_video_watermark(android):
         gallery.preview_latest('video')
         for stage in ('详情封面', '播放后暂停帧'):
             if stage == '播放后暂停帧':
-                gallery.action('play_btn', '播放视频'); time.sleep(2)
-                gallery.action('play_btn', '暂停后抽查视频帧')
+                gallery.play_pause()
             deadline = time.monotonic() + duration + 120
             while True:
                 try:
@@ -100,6 +99,11 @@ def test_video_watermark(android):
                         raise AssertionError(f'视频已导入，但{stage}在 {duration + 120} 秒内'
                                              f'仍未识别到 VisionRay 水印：{error}') from None
                     time.sleep(10)
+                    # 详情页不会因导入后的后台处理自动刷新；重新进入后再检查新画面。
+                    gallery.d.press_keycode(4)
+                    gallery.preview_latest('video')
+                    if stage == '播放后暂停帧':
+                        gallery.play_pause()
     run(android, action)
 
 
