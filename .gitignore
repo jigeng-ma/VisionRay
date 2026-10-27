@@ -1,4 +1,7 @@
 configs/workbench_state.json
+configs/ios.local.json
+.venv/
+.DS_Store
 
 # Local and generated artifacts
 .codex/
