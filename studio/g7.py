@@ -39,16 +39,16 @@ class G7Page:
     def conversation_modes(self):
         SettingsPage(self.a).ai()
         self.text('Dialogue Mode', 'Conversation Mode', 'Conversation Style').click()
-        names = ('Natural Conversation', 'Continuous Conversation', 'Single Conversation')
+        names = ('Single Conversation', 'Continuous Conversation', 'Interruptible Conversation')
         self.a.wait(lambda: 'Single Conversation' in self.visible_texts(),
                     '对话方式弹窗', 10)
         shown = self.visible_texts()
         missing = [name for name in names if name not in shown]
         self.a.log('g7-dialogue-options', {'shown': shown, 'missing': missing})
-        for name in names[1:] + names[:1]:
+        for name in names:
             if name not in shown:
                 continue
-            if name != names[1]:
+            if name != names[0]:
                 self.text('Dialogue Mode', 'Conversation Mode', 'Conversation Style').click()
             self.text(name).click()
             selected = self.text(name).get_attribute('selected') == 'true'

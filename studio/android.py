@@ -46,7 +46,8 @@ class Android:
                 # 启动器会先短暂显示 SplashActivity；它结束前不能开始找业务元素，
                 # 否则部分机型会在初始化后回到桌面而产生“启动成功”的假象。
                 current = [line for line in output.splitlines() if 'mCurrentFocus' in line]
-                if any('permissioncontroller' in line.lower() for line in current):
+                if any('permissioncontroller' in line.lower() or 'com.lbe.security.miui' in line.lower()
+                       for line in current):
                     if self.popups.handle():
                         return False
                 if any('NotificationShade' in line for line in current):

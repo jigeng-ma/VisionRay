@@ -28,11 +28,14 @@ def test_model_guard_and_exactly_one_click_even_on_error(monkeypatch):
 
 
 def media():
-    return BleMediaCommands(Mock(context={'config': {'product': 'G系列', 'model': 'G1', 'package': 'test'}}))
+    return BleMediaCommands(Mock(context={'phone': 'phone-1',
+                                   'config': {'product': 'G系列', 'model': 'G1', 'package': 'test'}}))
 
 
 def test_counts_defaults_and_cleanup(monkeypatch):
     monkeypatch.setattr('studio.ble_commands.time.sleep', lambda _: None)
+    wake = Mock()
+    monkeypatch.setattr('studio.devices.Adb.shell', wake)
     p = media()
     p._click = Mock()
     p._hold = Mock()
@@ -49,7 +52,8 @@ def test_counts_defaults_and_cleanup(monkeypatch):
     with pytest.raises(RuntimeError):
         p.record_audio(duration=40)
     assert [c.args[0] for c in p._click.call_args_list] == ['start_audio', 'stop_audio']
-    assert p.a.driver.press_keycode.call_count == 3
+    assert wake.call_count == 3
+    assert all(call.args == ('phone-1', 'input', 'keyevent', '224') for call in wake.call_args_list)
 
 
 def test_permission_page_repairs_media_permissions_and_retries(monkeypatch):

@@ -254,7 +254,7 @@ class FirmwareUpdatePage:
         while time.monotonic() < deadline:
             if self._any_text(('Bluetooth not connected', 'Please pair your glasses')):
                 self.a.capture('firmware-bluetooth-disconnected')
-                raise AssertionError('固件更新无法开始：APP 提示 Bluetooth not connected，请检查眼镜 BLE 连接。')
+                raise AssertionError('固件更新无法开始：APP 提示 Bluetooth not connected；请确认手机系统蓝牙中已配对目标眼镜。APP 内绑定并不代表系统蓝牙配对成功。')
             if self._any_text(('Update Failed', 'Upgrade Failed', 'Download Failed', 'Transfer Failed')):
                 self.a.capture('firmware-update-failed')
                 descriptions = [e.text.strip() for e in self.a.driver.find_elements('id', self.package + ':id/tvDesc')

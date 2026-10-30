@@ -16,8 +16,15 @@ class GalleryPage:
         self.package = android.context['config']['package']
 
     def all(self, resource):
-        return [e for e in self.d.find_elements('id', self.package + ':id/' + resource)
-                if e.is_displayed()]
+        from selenium.common.exceptions import StaleElementReferenceException
+        for attempt in range(3):
+            try:
+                return [e for e in self.d.find_elements('id', self.package + ':id/' + resource)
+                        if e.is_displayed()]
+            except StaleElementReferenceException:
+                if attempt == 2:
+                    raise
+        return []
 
     def one(self, resource, label=None, timeout=12):
         def visible():
@@ -279,10 +286,15 @@ class GalleryPage:
     def import_from(self, surface, timeout=300):
         """在指定入口导入，并返回导入前卡片显示的真实数量。"""
         before = self.pending_count_on(surface)
-        button = self.one('status_action_btn' if self.all('status_title_tv') else 'import_btn', '导入按钮')
-        if not button.is_enabled():
-            raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
-        button.click()
+        statuses = self.all('status_title_tv')
+        if statuses and any('importing' in e.text.lower() for e in statuses):
+            # 前一轮导入尚在进行时，APP 只显示进度，不提供按钮；等待现有任务完成。
+            self.a.log('import-already-running', {'surface': surface, 'count': before})
+        else:
+            button = self.one('status_action_btn' if statuses else 'import_btn', '导入按钮')
+            if not button.is_enabled():
+                raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
+            button.click()
         if self.all('status_title_tv'):
             self.a.assert_wait(lambda: bool(self.all('status_title_tv')), False,
                                '首页导入后待导入通知仍存在', timeout)
@@ -413,16 +425,19 @@ class GalleryPage:
         # 图片在相册中可能带 EXIF 旋转，水印可能落在显示上方或下方；仅扫描两端以避免画面正文误判。
         regions = [(0, int(height * .72), width, height), (0, 0, width, int(height * .28))]
         if label == 'system-share-sheet':
-            # Samsung 分享弹窗中预览图底部约在屏幕 54%–67%，水印位于该区域左下角。
-            regions.append((0, int(height * .54), width, int(height * .67)))
+            # 系统分享弹窗的预览位置因手机而异：小米水印在约 48%，三星在 54%–67%。
+            regions.extend((0, int(height * top), int(width * .7), int(height * bottom))
+                           for top, bottom in ((.46, .51), (.54, .67)))
         if video:
-            # 视频位于屏幕中段，水印贴近画面左下角；包含底部操作栏会干扰 OCR。
-            regions = [(0, int(height * .64), int(width * .38), int(height * .72))]
+            # 播放器对不同宽高比视频留黑边，水印高度并不固定。
+            regions = [(0, int(height * top), int(width * .38), int(height * (top + .06)))
+                       for top in (.55, .59, .63, .67)]
         texts = []
         for region in regions:
             crop = image.crop(region)
             # 原图通常已是 4K；限制 OCR 输入宽度，避免长时间没有 Appium 指令而会话超时。
-            if video or (label == 'system-share-sheet' and region[1] == int(height * .54)):
+            if video or (label == 'system-share-sheet' and region[1] in
+                         (int(height * .46), int(height * .54))):
                 crop = crop.resize((crop.width * 4, crop.height * 4))
             elif crop.width < 1600:
                 crop = crop.resize((crop.width * 2, crop.height * 2))
@@ -432,6 +447,24 @@ class GalleryPage:
         compact = ''.join(re.sub(r'[^a-z]', '', value) for value in texts)
         # 分享弹窗把预览缩小到约 1/6，首字母 V 偶尔会被压缩误读；保留 ``ionray`` 作为兜底关键标志。
         marker_found = 'vision' in compact or (label == 'system-share-sheet' and 'ionray' in compact)
+        if video and not marker_found:
+            from PIL import ImageChops
+            # 浅色场景上的半透明白字会被普通 OCR 漏读。只保留低饱和度的
+            # 高亮笔画，并在视频画面下半部逐带查找，避免依赖固定画幅。
+            for top in (.56, .58, .6026, .62, .64, .66):
+                crop = image.crop((0, int(height * top), int(width * .278),
+                                   int(height * (top + .0342))))
+                _, saturation, value = crop.convert('HSV').split()
+                pale = saturation.point(lambda pixel: 255 if pixel <= 60 else 0)
+                bright = value.point(lambda pixel: 255 if pixel >= 210 else 0)
+                letters = ImageChops.multiply(pale, bright)
+                letters = letters.resize((letters.width * 4, letters.height * 4))
+                candidate = pytesseract.image_to_string(letters, config='--psm 11').lower()
+                normalized = re.sub(r'[^a-z]', '', candidate)
+                texts.append(candidate)
+                if any(word in normalized for word in ('vision', 'ionray', 'nsray', 'nfsray')):
+                    marker_found = True
+                    break
         if not marker_found:
             self.a.capture(label + '-watermark-not-found')
             raise AssertionError(label + ' 未识别到 VisionRay 水印：' + ' | '.join(value.strip() for value in texts))

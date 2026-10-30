@@ -151,7 +151,7 @@ def registry(root, product=None):
             if target_sheet in ('G1_G3_G6', 'G7'):
                 # 合并 Sheet 的行顺序就是执行顺序；旧模块的优先级不能跨模块混排。
                 alias.pop('execution_order', None)
-            if product == 'G7' and target_sheet == 'G7':
+            if product == 'G7' and target_sheet == 'G7' and not item.get('models'):
                 alias['models'] = ['G7']
             elif product == 'G系列' and target_sheet == 'G1_G3_G6' and item.get('models'):
                 alias['models'] = [model for model in item['models'] if model in ('G1', 'G3', 'G6')]

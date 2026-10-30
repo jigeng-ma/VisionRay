@@ -91,8 +91,23 @@ def test_g7_conversation_modes(android):
 
 def _video(android, width, height, fps, duration):
     _bound_home(android)
-    page = G7Page(android)
-    page.set_video(width, height, fps, duration)
+    for attempt in range(2):
+        page = G7Page(android)
+        try:
+            page.set_video(width, height, fps, duration)
+            break
+        except RuntimeError as exc:
+            if attempt or not any(marker in str(exc) for marker in
+                                  ('UiAutomator2 服务进程已退出', 'instrumentation process is not running')):
+                raise
+            android.log('g7-driver-reconnect', {'phase': 'set_video', 'error': str(exc)})
+            try:
+                android.close()
+            except Exception:
+                pass
+            android.driver = None
+            android.connect()
+            _bound_home(android)
     page.record_and_check(duration, width, height, fps)
 
 

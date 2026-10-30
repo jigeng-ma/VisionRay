@@ -70,6 +70,28 @@ class HomeDevicePage:
         title = self.a.element('pair.home_title', 20)
         if not title or (require_target and self.name not in self._bound_names()):
             raise TestBlocked('未处于目标眼镜已连接首页：' + self.name)
+        # APP 有时保留设备卡片和电量，却明确显示连接失败。先按页面的
+        # Retry 恢复一次；仍失败时报告真实前置状态，避免媒资用例空等导入。
+        error = "Connection failed. Try again later."
+        if any(e.is_displayed() for e in self.a.driver.find_elements(
+                'xpath', f"//*[@package='{self.package}' and @text='{error}']")):
+            retry = [e for e in self.a.driver.find_elements(
+                'xpath', f"//*[@package='{self.package}' and @text='Retry']")
+                if e.is_displayed() and e.is_enabled()]
+            if len(retry) != 1:
+                raise TestBlocked('APP 显示眼镜连接失败，但未找到唯一 Retry 按钮。')
+            retry[0].click()
+            self.a.log('glasses-connection-retry', self.name)
+            try:
+                self.a.wait(lambda: not any(e.is_displayed() for e in self.a.driver.find_elements(
+                    'xpath', f"//*[@package='{self.package}' and @text='{error}']")),
+                    'APP 眼镜连接失败提示消失', 25)
+            except WaitTimeout as exc:
+                raise TestBlocked(f'APP 显示目标眼镜 {self.name} 连接失败，点击 Retry 后仍未恢复。') from exc
+            time.sleep(3)
+            if any(e.is_displayed() for e in self.a.driver.find_elements(
+                    'xpath', f"//*[@package='{self.package}' and @text='{error}']")):
+                raise TestBlocked(f'APP 显示目标眼镜 {self.name} 连接失败，Retry 后再次出现失败提示。')
 
     def _labeled(self, resource, label):
         found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource) if e.is_displayed() and e.text == label]
@@ -84,11 +106,16 @@ class HomeDevicePage:
         self.home(require_target=require_target)
         # 不同 APP 版本首页显示 System 或 System Settings，详情页仍叫 System Settings。
         if label == 'System Settings':
-            items = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_list_title')
-                     if e.is_displayed() and e.text in ('System', 'System Settings')]
-            if len(items) != 1:
-                raise AssertionError(f'未唯一找到系统设置入口：{len(items)} 项。')
-            items[0].click()
+            def click_system():
+                items = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_list_title')
+                         if e.is_displayed() and e.text in ('System', 'System Settings')]
+                if len(items) > 1:
+                    raise AssertionError(f'系统设置入口不唯一：{len(items)} 项。')
+                if not items:
+                    return False
+                items[0].click()
+                return True
+            self.a.wait(click_system, '系统设置入口', 12)
         else:
             self._labeled('tv_list_title', label).click()
         self.a.log('click-setting', label)

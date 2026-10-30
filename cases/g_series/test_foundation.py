@@ -27,12 +27,7 @@ def _apk(context):
 
 
 def _install_current(adb, context, downgrade=False):
-    args = ['adb', '-s', context['phone'], 'install', '-r']
-    if downgrade:
-        args.append('-d')
-    args.append(str(_apk(context)))
-    result = subprocess.run(args, text=True, capture_output=True, check=False)
-    assert result.returncode == 0 and 'Success' in result.stdout, result.stdout + result.stderr
+    install(context['phone'], _apk(context), replace=True, downgrade=downgrade)
     info = adb.shell(context['phone'], 'dumpsys', 'package', context['config']['package'])
     assert f'versionName={_version(context)}' in info, '安装版本与工作台输入不符'
 
@@ -135,8 +130,10 @@ def _set_locale(android, adb, serial, locale):
         return False
     def open_language_page():
         for _ in range(3):
-            # One UI can resurrect a Bluetooth Settings task; -S clears that process first.
-            adb.shell(serial, 'am', 'start', '-S', '-a', 'android.settings.LOCALE_SETTINGS')
+            # One UI can resurrect a Bluetooth Settings task. HyperOS exposes
+            # multiple locale handlers, so am start -S is ambiguous there.
+            adb.shell(serial, 'am', 'force-stop', 'com.android.settings')
+            adb.shell(serial, 'am', 'start', '-a', 'android.settings.LOCALE_SETTINGS')
             try:
                 android.wait(lambda: android.driver.current_package == 'com.android.settings',
                              '打开系统语言设置', 12)
@@ -205,12 +202,11 @@ def test_lower_version_cover_install(android, adb, context):
     try:
         result = adb.run('-s', context['phone'], 'uninstall', context['config']['package'])
         assert 'Success' in result, '卸载现有 APP 失败：' + result
-        result = adb.run('-s', context['phone'], 'install', str(apk))
-        assert 'Success' in result, '安装低版本 APP 失败：' + result
+        install(context['phone'], apk)
         info = adb.shell(context['phone'], 'dumpsys', 'package', context['config']['package'])
         assert f'versionName={old_version}' in info, '低版本安装后版本号不符'
         android.restart()
-        AuthPage(android).home()
+        AuthPage(android).registered()
         HomeDevicePage(android).home()
         assert HomeDevicePage(android).text(context['glasses_name'], 8)
         android.capture('lower-version-bound')

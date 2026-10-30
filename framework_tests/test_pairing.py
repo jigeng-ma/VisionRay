@@ -22,6 +22,7 @@ class HomeSettingTests(unittest.TestCase):
             entry = Mock(text=label)
             entry.is_displayed.return_value = True
             a.driver.find_elements.return_value = [entry]
+            a.wait.side_effect = lambda action, *_: action()
             page = HomeDevicePage(a)
             page.home = Mock()
             page.setting('System Settings')

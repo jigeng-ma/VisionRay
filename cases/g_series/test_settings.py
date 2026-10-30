@@ -179,7 +179,22 @@ def test_system_factory_reset(android):
 
 
 def test_system_single_unbind(android):
-    run(android, lambda: HomeDevicePage(android).unbind())
+    def action():
+        HomeDevicePage(android).unbind()
+        # 已核对解绑后的 Add Device 页面；恢复本轮目标眼镜供后续模块使用。
+        from studio.pairing import PairingPage
+        pairing = PairingPage(android)
+        original_skip = pairing.options.get('skip_tutorial', False)
+        original_prompt = pairing.options.get('require_pairing_prompt', True)
+        try:
+            pairing.options['skip_tutorial'] = True
+            pairing.options['require_pairing_prompt'] = False
+            pairing.run()
+        finally:
+            pairing.options['skip_tutorial'] = original_skip
+            pairing.options['require_pairing_prompt'] = original_prompt
+        HomeDevicePage(android).home()
+    run(android, action)
 
 
 def test_system_multi_unbind(android):

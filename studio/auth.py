@@ -193,6 +193,14 @@ class AuthPage:
             if len(buttons) == 1:
                 buttons[0].click()
         self.leave_pending_guide()
+        # 解绑后的配对用例可能停在 Pairing Ready / 型号页。账号和“我的”
+        # 页面不需要重新绑定眼镜，先退出配对流程再寻找底部导航。
+        for _ in range(3):
+            if not any(self.a.find(key) for key in ('pair.prepare_title', 'pair.models_title',
+                                                     'pair.searching', 'pair.results')):
+                break
+            self.d.back()
+            self.settle()
         self.a.wait(lambda: any(self.has(k) for k in ('tabIcon', 'tv_login_by_email',
             'back_iv', 'tv_cancel')), '账号流程页面加载完成', 25)
         for _ in range(9):

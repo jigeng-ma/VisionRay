@@ -82,13 +82,15 @@ class FoundationTests(unittest.TestCase):
             'cases.g_series.test_foundation.download', return_value='old.apk'
         ), patch('cases.g_series.test_foundation._install_current') as install_current, patch(
             'cases.g_series.test_foundation.HomeDevicePage'
-        ) as home_page, patch('cases.g_series.test_foundation.AuthPage') as auth_page:
+        ) as home_page, patch('cases.g_series.test_foundation.AuthPage') as auth_page, patch(
+            'cases.g_series.test_foundation.install'
+        ) as install_old:
             def check_upgrade(*_):
                 self.assertEqual(adb.run.call_args_list, [
-                    unittest.mock.call('-s', 'phone', 'uninstall', 'visionray'),
-                    unittest.mock.call('-s', 'phone', 'install', 'old.apk')])
+                    unittest.mock.call('-s', 'phone', 'uninstall', 'visionray')])
+                install_old.assert_called_once_with('phone', 'old.apk')
                 self.assertEqual(android.restart.call_count, 1)
-                auth_page.return_value.home.assert_called_once_with()
+                auth_page.return_value.registered.assert_called_once_with()
                 home_page.return_value.home.assert_called_once_with()
             install_current.side_effect = check_upgrade
             cover_install_case(android, adb, context)
@@ -100,10 +102,12 @@ class FoundationTests(unittest.TestCase):
         context = {'phone': 'phone', 'config': {'package': 'visionray'},
                    'glasses_name': 'G1', 'app_version': '1.2.41-debug'}
         android, adb = Mock(), Mock()
-        adb.run.side_effect = ['Success', RuntimeError('old install failed')]
+        adb.run.return_value = 'Success'
         with patch('cases.g_series.test_foundation._older_build', return_value=('build', '1.2.40-debug')), patch(
             'cases.g_series.test_foundation.download', return_value='old.apk'
-        ), patch('cases.g_series.test_foundation._install_current') as install_current:
+        ), patch('cases.g_series.test_foundation._install_current') as install_current, patch(
+            'cases.g_series.test_foundation.install', side_effect=RuntimeError('old install failed')
+        ):
             with self.assertRaisesRegex(RuntimeError, 'old install failed'):
                 cover_install_case(android, adb, context)
         install_current.assert_called_once_with(adb, context)
@@ -161,6 +165,8 @@ class FoundationTests(unittest.TestCase):
             def shell(self, serial, *args):
                 if args[:2] == ('getprop', 'persist.sys.locale'):
                     return android.locale
+                if args[:2] == ('am', 'force-stop'):
+                    return ''
                 self.starts += 1
                 self_activity = 'BluetoothSettingsActivity' if self.starts == 1 else 'LocalePickerActivity'
                 android.driver.current_activity = self_activity

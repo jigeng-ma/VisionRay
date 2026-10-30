@@ -19,17 +19,22 @@ class PopupGuard:
         """允许 VisionRay 首次功能使用所需的 Android 系统权限，并选择最大授权范围。"""
         if not any('Allow VisionRay to' in text or '允许“VisionRay”' in text for text in texts):
             return False
-        if not any(package == 'android' or package.endswith('.permissioncontroller') for package in packages if package):
+        if not any(package == 'android' or package.endswith('.permissioncontroller')
+                   or package == 'com.lbe.security.miui' for package in packages if package):
             return False
         a = self.android
         joined = ' '.join(texts).lower()
         # 定位权限页可能默认停在 Approximate；先显式选择 Precise，再允许使用期间访问。
         if 'location' in joined:
-            precise = [e for e in a.driver.find_elements('xpath', "//*[@text='Precise']") if e.is_displayed() and e.is_enabled()]
+            locator = ("//*[@resource-id='com.lbe.security.miui:id/precise_location']"
+                       if 'com.lbe.security.miui' in packages else "//*[@text='Precise']")
+            precise = [e for e in a.driver.find_elements('xpath', locator) if e.is_displayed() and e.is_enabled()]
             if len(precise) == 1:
                 precise[0].click()
         preferred = ('Allow all', '允许访问所有照片') if 'photos and videos' in joined or '照片和视频' in joined else (
-            'Allow', 'While using the app', '允许', '使用应用时允许')
+            'Allow all the time', 'Allow', 'Allow only while using the app',
+            'While using the app', '允许', '始终允许',
+            '仅在使用中允许', '使用应用时允许')
         for text in preferred:
             buttons = [e for e in a.driver.find_elements('xpath', f"//*[@text={text!r}]") if e.is_displayed() and e.is_enabled()]
             if len(buttons) == 1:

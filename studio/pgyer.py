@@ -10,6 +10,7 @@ import re
 import subprocess
 import time
 import zipfile
+from xml.etree import ElementTree
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.parse import urlencode
@@ -171,7 +172,7 @@ def resolve_build(source: str, version: str | None, build: str | None, variant: 
     raise RuntimeError("No Pgyer build matched the supplied version/build value.")
 
 
-def install(serial: str, apk: Path, package: str | None = None) -> str:
+def install(serial: str, apk: Path, package: str | None = None, *, replace=False, downgrade=False) -> str:
     """Install an APK; supplying a package performs a fresh install for a test run."""
     if package:
         current = subprocess.run(["adb", "-s", serial, "shell", "pm", "path", package],
@@ -185,11 +186,60 @@ def install(serial: str, apk: Path, package: str | None = None) -> str:
             if removed.returncode or 'Success' not in removed.stdout:
                 raise RuntimeError('卸载当前 APP 失败：' + removed.stdout + removed.stderr)
     args = ["adb", "-s", serial, "install"]
-    if not package:
+    if not package or replace:
         args.append("-r")
-    result = subprocess.run([*args, str(apk)], text=True, capture_output=True, check=False)
+    if downgrade:
+        args.append("-d")
+    command = [*args, str(apk)]
+    manufacturer = subprocess.run(["adb", "-s", serial, "shell", "getprop", "ro.product.manufacturer"],
+                                  text=True, capture_output=True, check=False).stdout.strip().lower()
+    if manufacturer == 'xiaomi':
+        # HyperOS presents a ten-second USB-install confirmation, even when
+        # "Install via USB" is enabled. A blocking adb.run misses that dialog.
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 120
+        dialog_seen = False
+        tap_count = 0
+        while process.poll() is None and time.monotonic() < deadline:
+            focus = subprocess.run(["adb", "-s", serial, "shell", "dumpsys", "window"],
+                                   capture_output=True, check=False).stdout.decode('utf-8', 'replace')
+            if 'com.miui.permcenter.install.AdbInstallActivity' in focus:
+                subprocess.run(["adb", "-s", serial, "shell", "uiautomator", "dump", "/sdcard/window.xml"],
+                               capture_output=True, check=False)
+                xml = subprocess.run(["adb", "-s", serial, "shell", "cat", "/sdcard/window.xml"],
+                                     capture_output=True, check=False).stdout
+                try:
+                    nodes = list(ElementTree.fromstring(xml).iter())
+                except ElementTree.ParseError:
+                    nodes = []
+                if any(node.get('text') == 'VisionRay' for node in nodes):
+                    dialog_seen = True
+                    def tap(node):
+                        x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.get('bounds', '')))
+                        subprocess.run(["adb", "-s", serial, "shell", "input", "tap",
+                                        str((x1+x2)//2), str((y1+y2)//2)], check=True)
+                    remember = next((node for node in nodes if node.get('text') == 'Remember my choice'
+                                     and node.get('checked') == 'false'), None)
+                    if remember is not None:
+                        tap(remember)
+                    button = next((node for node in nodes if node.get('text') in ('Install', '继续安装')
+                                   and node.get('enabled') == 'true'), None)
+                    if button is not None:
+                        tap(button)
+                        tap_count += 1
+                        break
+            time.sleep(.2)
+        stdout, stderr = process.communicate(timeout=120)
+        result = subprocess.CompletedProcess(command, process.returncode,
+                                             stdout.decode('utf-8', 'replace'), stderr.decode('utf-8', 'replace'))
+    else:
+        result = subprocess.run(command, text=True, capture_output=True, check=False)
     if result.returncode or "Success" not in result.stdout:
-        raise RuntimeError(result.stdout + result.stderr)
+        detail = result.stdout + result.stderr
+        if 'INSTALL_FAILED_USER_RESTRICTED' in detail and manufacturer == 'xiaomi':
+            detail += (f'\n小米 USB 安装弹窗检测：{dialog_seen}，确认点击次数：{tap_count}。'
+                       '请检查开发者选项中的 USB 安装，以及 USB 安装管理中的 VisionRay 禁止记录。')
+        raise RuntimeError(detail)
     return result.stdout.strip()
 
 

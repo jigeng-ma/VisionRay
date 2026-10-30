@@ -2,7 +2,6 @@
 
 from .auth import AuthPage
 from .errors import TestBlocked
-from .home_device import HomeDevicePage
 
 
 class MyPage:
@@ -13,7 +12,6 @@ class MyPage:
 
     def open(self):
         AuthPage(self.a).registered()
-        HomeDevicePage(self.a).home()
         tabs = [e for e in self.d.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()]
         if len(tabs) < 3:
             raise TestBlocked('底部导航未找到 My 标签。')

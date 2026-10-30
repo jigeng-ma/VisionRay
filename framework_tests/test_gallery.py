@@ -64,6 +64,20 @@ def test_missing_import_notice_after_preparation_is_failure():
         page.assert_pending_counts(3)
 
 
+def test_import_already_in_progress_waits_without_clicking():
+    page = object.__new__(GalleryPage)
+    page.pending_count_on = Mock(return_value=3)
+    page.all = Mock(side_effect=[[Mock(text='Importing terms…')], []])
+    page.one = Mock()
+    page.a = Mock(unsafe=True)
+    page.import_card = Mock(return_value=None)
+    page.open_home = Mock()
+    page.open = Mock()
+    assert page.import_from('gallery') == 3
+    page.one.assert_not_called()
+    page.a.log.assert_any_call('import-already-running', {'surface': 'gallery', 'count': 3})
+
+
 def page_with_card(*texts):
     page = object.__new__(GalleryPage)
     card = Mock(text='')

@@ -11,6 +11,7 @@ class PairingPage:
     def __init__(self, android):
         self.a = android
         self.options = android.context['config']['pairing']
+        self._binding_failed_seen = False
 
     def _swipe_models(self, upward):
         try:
@@ -168,6 +169,12 @@ class PairingPage:
         for _ in range(4):
             if a.find('pair.add') or a.find('pair.home_title') or a.find('pair.tutorial_title'):
                 break
+            tabs = [e for e in a.driver.find_elements('id',
+                    a.context['config']['package'] + ':id/tabIcon') if e.is_displayed()]
+            if tabs:
+                tabs[0].click()
+                time.sleep(.3)
+                continue
             a.driver.press_keycode(4)
             time.sleep(.3)
         if not (a.find('pair.add') or a.find('pair.home_title') or a.find('pair.tutorial_title')):
@@ -234,6 +241,7 @@ class PairingPage:
             except AssertionError:
                 if not a.find('pair.binding_failed'):
                     raise
+                self._binding_failed_seen = True
                 message = [e.text for e in a.driver.find_elements('id',
                     a.context['config']['package'] + ':id/tv_message') if e.is_displayed()]
                 buttons = [e for e in a.driver.find_elements('id',
@@ -330,4 +338,24 @@ class PairingPage:
 
     def run(self):
         self.prepare_search()
-        self.bind()
+        try:
+            self.bind()
+        except (AssertionError, WaitTimeout):
+            if not self._binding_failed_seen:
+                raise
+            # APP 已明确返回 Binding Failed，单纯等待后重试仍可能沿用
+            # 手机端残留的 BLE 会话；仅此时重置手机蓝牙并重启 APP，再搜索一次。
+            from .devices import Adb
+            phone = self.a.context['phone']
+            adb = Adb()
+            self.a.log('pair-recovery', 'Binding Failed 后重置手机蓝牙与 APP，再搜索目标眼镜')
+            try:
+                adb.shell(phone, 'cmd', 'bluetooth_manager', 'disable')
+                time.sleep(3)
+            finally:
+                adb.shell(phone, 'cmd', 'bluetooth_manager', 'enable')
+            time.sleep(3)
+            self.a.restart()
+            self._binding_failed_seen = False
+            self.prepare_search()
+            self.bind()

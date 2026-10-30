@@ -91,8 +91,21 @@ class BleMediaCommands:
         required = ((self.BUTTONS[action],) if action else tuple(self.BUTTONS.values()))
         if not all(self._find(resource) for resource, _ in required):
             size = a.driver.get_window_size()
-            a.driver.swipe(int(size['width'] * .5), int(size['height'] * .78),
-                           int(size['width'] * .5), int(size['height'] * .30), 600)
+            # 长调试页可能保留上次滚动位置。拍照入口在录像入口上方，
+            # 先回到顶部再向下搜索，避免只往下滑而误报按钮缺失。
+            for start, end in ((.30, .78), (.78, .30)):
+                for _ in range(5):
+                    if all(self._find(resource) for resource, _ in required):
+                        break
+                    a.driver.swipe(int(size['width'] * .5), int(size['height'] * start),
+                                   int(size['width'] * .5), int(size['height'] * end), 600)
+                if all(self._find(resource) for resource, _ in required):
+                    break
+        if not all(self._find(resource) for resource, _ in required):
+            missing = [label for resource, label in required if not self._find(resource)]
+            a.capture('ble-media-buttons-missing')
+            raise AssertionError(f'BLE_COMMAND_TEST 页面未提供 {"、".join(missing)} 按钮；'
+                                 '已从顶部到底部搜索，请核对当前型号的媒体命令。')
         a.wait(lambda: all(self._find(resource) for resource, _ in required),
                self.BUTTONS[action][1] + '按钮可见' if action else '拍照、录像、录音按钮可见', 10)
         return self
@@ -200,7 +213,8 @@ class BleMediaCommands:
                 self._hold(duration)
             finally:
                 # 长录制后手机可能休眠；唤醒屏幕再按一次停止，避免重复开始录制。
-                self.a.driver.press_keycode(224)
+                from .devices import Adb
+                Adb().shell(self.a.context['phone'], 'input', 'keyevent', '224')
                 self._click('stop_' + kind)
             self.a.log('ble-record-complete', {'kind': kind, 'index': index + 1, 'seconds': duration})
             if index + 1 < count:

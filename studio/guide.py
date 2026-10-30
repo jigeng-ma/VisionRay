@@ -27,7 +27,9 @@ class GuidePage:
     def done_to_home(self):
         a = self.a
         a.ensure_foreground()
-        if not self.pairing.on_tutorial():
+        in_guide = (a.driver.current_activity == self.pairing.options['tutorial_activity']
+                    and (a.find('pair.tutorial_begin') or a.find('pair.skip')))
+        if not in_guide:
             # 用例可单独运行：先建立 Begin 后的引导状态，再验证 Done。
             self.begin()
         elif a.find('pair.tutorial_begin'):
