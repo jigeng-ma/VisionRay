@@ -14,8 +14,10 @@ class HomeDevicePage:
         return self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath', xpath) if e.is_displayed()), None), value, timeout)
 
     def _bound_names(self):
-        return [e.text.strip() for e in self.a.driver.find_elements('id', self.package + ':id/tv_device_name')
-                if e.is_displayed() and e.text.strip()]
+        from xml.etree import ElementTree as ET
+        resource = self.package + ':id/tv_device_name'
+        return [node.get('text', '').strip() for node in ET.fromstring(self.a.driver.page_source).iter()
+                if node.get('resource-id') == resource and node.get('text', '').strip()]
 
     def home(self, require_target=True):
         self.a.ensure_foreground()

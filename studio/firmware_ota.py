@@ -13,7 +13,7 @@ from .ota_targets import target_info
 
 
 TEST_TASKS = (164, 165, 171, 155)
-_MODEL_NAMES = {"G1": "DPVR G1", "G3": "DPVR G3", "G6": "DPVR G6"}
+_MODEL_NAMES = {"G1": "DPVR G1", "G3": "DPVR G3", "G6": "DPVR G6", "G5": "DPVR G5"}
 
 
 def _numbers(version: str) -> tuple[int, ...]:
@@ -25,8 +25,24 @@ def _numbers(version: str) -> tuple[int, ...]:
 
 def _target(android, firmware: str, direction: str) -> dict:
     model = _MODEL_NAMES.get(android.context["config"].get("model"))
+    if android.context["config"].get("model") == "G7":
+        package = android.context['config']['package']
+        locator = (f"//*[@resource-id='{package}:id/tv_title' and @text='Model']/parent::*"
+                   f"//*[@resource-id='{package}:id/tv_hint']")
+        rows = []
+        for _ in range(5):
+            rows = [e for e in android.driver.find_elements('xpath', locator) if e.is_displayed()]
+            if rows:
+                break
+            size = android.driver.get_window_size()
+            android.driver.swipe(size['width'] // 2, int(size['height'] * .3),
+                                 size['width'] // 2, int(size['height'] * .8), 400)
+        if len(rows) != 1 or rows[0].text.strip() not in ('Flow Pro Pilot', 'Flow Pro Crystal'):
+            raise TestBlocked('G7 系统设置页未显示唯一的 Flow Pro Pilot/Crystal 型号。')
+        model = rows[0].text.strip()
+        android.log('firmware-device-model', model)
     if not model:
-        raise TestBlocked("固件 OTA 仅支持已配置的 G1/G3/G6 型号。")
+        raise TestBlocked("固件 OTA 仅支持已配置的 G1/G3/G6/G7/G5 型号。")
     node = target_info(f"{model}.{firmware}.{direction}", "glasses")
     if not node["task_id"] or not node["version"]:
         raise TestBlocked(f"{model} {firmware} {direction} 的 OTA task_id 或实际版本尚未配置。")
@@ -69,10 +85,15 @@ def choose_target(android, firmware: str) -> tuple[str, dict, str]:
     return current, target, direction
 
 
-def prepare_target(task_id: int, mandatory: bool) -> None:
+def prepare_target(task_id: int, mandatory: bool, model: str = 'DPVR G1') -> None:
     """只上线本轮固件，并同步本轮是否强制升级。"""
     client = OtaClient()
-    client.activate_only(task_id, TEST_TASKS, apply=True)
+    firmware_types = ('bluetooth', 'isp') if model == 'DPVR G5' or model.startswith('Flow Echo ') else ('bluetooth', 'wifi')
+    tasks = tuple(target_info(f'{model}.{kind}.{direction}', 'glasses')['task_id']
+                  for kind in firmware_types for direction in ('upgrade', 'downgrade'))
+    if any(not task for task in tasks):
+        raise TestBlocked(f'{model} 固件 OTA 的四个 task_id 尚未配置完整。')
+    client.activate_only(task_id, tasks, apply=True)
     client.set_force(task_id, mandatory, apply=True)
 
 
@@ -204,8 +225,13 @@ class FirmwareUpdatePage:
                 raise TestBlocked(f'Firmware Update 设置入口不唯一：{len(rows)} 项。')
             rows[0].click()
             try:
-                self.a.wait(lambda: any(e.is_displayed() for resource in ('uof_btn', 'uof_version')
-                                        for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)),
+                def opened():
+                    if any(e.is_displayed() for e in self.a.driver.find_elements(
+                            'xpath', "//*[contains(@text, 'Firmware is up to date')]")):
+                        raise AssertionError('APP 提示 Firmware is up to date；当前上线任务未被识别为可更新固件，请核对 OTA 后台版本和目标设备。')
+                    return any(e.is_displayed() for resource in ('uof_btn', 'uof_version')
+                               for e in self.a.driver.find_elements('id', self.package + ':id/' + resource))
+                self.a.wait(opened,
                             '真正进入 Firmware Update 页面', 15)
                 self.a.capture("firmware-update-page")
                 return

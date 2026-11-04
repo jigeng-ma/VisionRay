@@ -66,11 +66,20 @@ def test_bluetooth_reconnect(android, adb):
         android.wait(lambda: next((e for e in android.driver.find_elements('xpath', "//*[@text='Bluetooth is off']") if e.is_displayed()), None), '蓝牙断连提示', 12)
         android.capture('bluetooth-off')
         adb.shell(serial, 'cmd', 'bluetooth_manager', 'enable')
-        app_turn_on = android.wait(lambda: next((e for e in android.driver.find_elements('id', p.package + ':id/btn_confirm') if e.is_displayed() and e.text == 'Turn on'), None), 'APP 蓝牙开启确认', 15)
-        app_turn_on.click(); android.log('bluetooth-popup', 'app-turn-on')
-        allow = android.wait(lambda: next((e for e in android.driver.find_elements('xpath', "//*[@resource-id='android:id/button1' and @text='Allow']") if e.is_displayed()), None), '系统蓝牙开启授权', 15)
-        allow.click(); android.log('bluetooth-popup', 'system-allow')
-        android.wait(lambda: android.driver.current_package == p.package, '返回 VisionRay', 15)
+        def resumed():
+            confirm = [e for e in android.driver.find_elements('id', p.package + ':id/btn_confirm')
+                       if e.is_displayed() and e.text == 'Turn on']
+            battery = [e for e in android.driver.find_elements('id', p.package + ':id/tv_battery_percent')
+                       if e.is_displayed() and e.text.strip() not in ('', '-')]
+            return confirm[0] if len(confirm) == 1 else ('connected' if battery else None)
+        outcome = android.wait(resumed, 'APP 蓝牙开启确认或自动重连', 25)
+        if outcome != 'connected':
+            outcome.click(); android.log('bluetooth-popup', 'app-turn-on')
+            allow = android.wait(lambda: next((e for e in android.driver.find_elements('xpath',
+                "//*[@resource-id='android:id/button1' and @text='Allow']") if e.is_displayed()), None),
+                '系统蓝牙开启授权', 15)
+            allow.click(); android.log('bluetooth-popup', 'system-allow')
+            android.wait(lambda: android.driver.current_package == p.package, '返回 VisionRay', 15)
         p.connected()
     finally:
         adb.shell(serial, 'cmd', 'bluetooth_manager', 'enable')

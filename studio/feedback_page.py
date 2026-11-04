@@ -43,6 +43,8 @@ class FeedbackPage:
 
     def open(self):
         # The workbench supplies one named device. Reuse or bind only that device.
+        from .auth import AuthPage
+        AuthPage(self.a).registered()
         HomeDevicePage(self.a).home()
         tabs = self._visible('tabIcon')
         if len(tabs) < 3:

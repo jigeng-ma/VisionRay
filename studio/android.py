@@ -151,6 +151,8 @@ class Android:
                     if result:
                         return result
                 except (StaleElementReferenceException, WebDriverException) as exc:
+                    if 'session is either terminated or not started' in str(exc).lower():
+                        raise RuntimeError('Appium 会话在等待期间失效；请检查长等待保活与手机连接。') from exc
                     if 'instrumentation process is not running' in str(exc):
                         raise RuntimeError('UiAutomator2 服务进程已退出，当前会话无法继续读取页面。') from exc
                     self.log('transient-driver-error', str(exc).splitlines()[0])
@@ -191,4 +193,9 @@ class Android:
 
     def close(self):
         if self.driver:
-            self.driver.quit()
+            from selenium.common.exceptions import WebDriverException
+            try:
+                self.driver.quit()
+            except WebDriverException as exc:
+                if 'session is either terminated or not started' not in str(exc).lower():
+                    raise

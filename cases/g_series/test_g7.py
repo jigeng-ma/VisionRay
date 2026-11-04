@@ -1,5 +1,6 @@
 """NovaAPP-G7 冒烟表中的 G7 专属用例。"""
 import re
+import pytest
 
 from studio.errors import TestBlocked, WaitTimeout
 from studio.g7 import G7Page
@@ -75,9 +76,12 @@ def test_g7_device_switch(android):
                   e.find_elements('id', home.package + ':id/tvName'))]
     assert len(containers) == 1, f'目标 G7 设备卡片不唯一：{len(containers)} 项。'
     containers[0].click()
-    # 已经选中这台眼镜时，APP 保持在 My Devices；返回首页后核对连接状态。
+    # 已经选中这台眼镜时，APP 保持在 My Devices；使用页面返回入口。
     if home.a.driver.current_activity.endswith('MyDevicesActivity'):
-        home.a.driver.press_keycode(4)
+        back = [e for e in home.a.driver.find_elements('id', home.package + ':id/ivBack')
+                if e.is_displayed() and e.is_enabled()]
+        assert len(back) == 1, f'设备选择页返回入口数量错误：{len(back)}。'
+        back[0].click()
     home.a.wait(lambda: home.a.find('pair.home_title') or home.a.find('pair.tutorial_begin'),
                 '选择 G7 后首页或引导页', 30)
     home.home()
@@ -121,6 +125,25 @@ def test_g7_video_2k5_30s(android):
 
 def test_g7_video_1080p_60fps(android):
     _video(android, 1920, 1080, 60, 30)
+
+
+VIDEO_VARIANTS = (
+    (3840, 2160, 30, 15), (3840, 2160, 30, 30),
+    (3264, 2448, 30, 15), (3264, 2448, 30, 30),
+    (2560, 1920, 30, 30), (2560, 1920, 30, 60), (2560, 1920, 30, 180),
+    (1920, 1080, 60, 30), (1920, 1080, 60, 60), (1920, 1080, 60, 180),
+    (1920, 1080, 60, 300), (1920, 1080, 60, 540), (1920, 1080, 60, 720),
+    (1920, 1080, 30, 30), (1920, 1080, 30, 60), (1920, 1080, 30, 180),
+    (1920, 1080, 30, 300), (1920, 1080, 30, 540), (1920, 1080, 30, 720),
+    (1920, 2560, 30, 30), (1920, 2560, 30, 60), (1920, 2560, 30, 180),
+    (1440, 2560, 30, 30), (1440, 2560, 30, 60), (1440, 2560, 30, 180),
+)
+
+
+@pytest.mark.parametrize('width,height,fps,duration', VIDEO_VARIANTS,
+                         ids=[f'Cam_{number:03d}' for number in range(11, 36)])
+def test_g7_video_variant(android, width, height, fps, duration):
+    _video(android, width, height, fps, duration)
 
 
 def test_g7_all_video_combinations(android):

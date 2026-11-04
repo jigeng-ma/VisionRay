@@ -27,7 +27,7 @@ def _manual_update(android, firmware):
     FirmwareUpdatePage(android).dismiss_stale_startup_popup()
     before, target, direction = choose_target(android, firmware)
     try:
-        prepare_target(target["task_id"], mandatory=False)
+        prepare_target(target["task_id"], mandatory=False, model=target['model'])
         page = FirmwareUpdatePage(android)
         page.open()
         page.start()
@@ -40,7 +40,7 @@ def _startup_update(android, firmware, mandatory):
     FirmwareUpdatePage(android).dismiss_stale_startup_popup()
     before, target, direction = choose_target(android, firmware)
     try:
-        prepare_target(target["task_id"], mandatory=mandatory)
+        prepare_target(target["task_id"], mandatory=mandatory, model=target['model'])
         if not mandatory:
             # 非强制提示通常只在新装 APP 登录并重新绑定眼镜后触发。
             from studio.auth import AuthPage, install_auth_variant

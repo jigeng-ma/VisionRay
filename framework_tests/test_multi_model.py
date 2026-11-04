@@ -47,8 +47,8 @@ class MultiModelTests(unittest.TestCase):
         g7 = registry(ROOT, 'G7')
         self.assertEqual(g7[('G7', 'F-OTA_002')]['node'],
                          g7[('G09_固件更新', 'F-OTA_002')]['node'])
-        self.assertFalse(case_applies(g7[('G7', 'F-OTA_002')],
-                                      {'product': 'G7', 'model': 'G7'}))
+        self.assertTrue(case_applies(g7[('G7', 'F-OTA_002')],
+                                     {'product': 'G7', 'model': 'G7'}))
         self.assertEqual(g7[('G7', 'PAIR_004')]['automation_id'], 'VisionRay_0145')
         self.assertIn(('APP_注册登录', 'C-L_005'), g7)
         g1 = registry(ROOT, 'G系列')

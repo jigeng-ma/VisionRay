@@ -92,7 +92,9 @@ class PopupGuard:
                 continue
             if not set(rule['packages']).intersection(packages):
                 continue
-            if not any(t in texts for t in rule['titles']):
+            pairing_title = (kind == 'bluetooth_pair' and any(
+                text.startswith('Pair with ') and text.endswith('?') for text in texts))
+            if not pairing_title and not any(t in texts for t in rule['titles']):
                 continue
             if rule.get('confirm_texts') and not any(t in texts for t in rule['confirm_texts']):
                 continue
@@ -104,8 +106,18 @@ class PopupGuard:
                 # 固件详情是完整页面，可由调用方返回；它不是需要点击 Cancel 的弹窗。
                 return False
             spec = rule['action']
-            buttons = [e for e in a.driver.find_elements(spec['by'], spec['value'])
-                       if e.is_displayed() and e.is_enabled()]
+            if kind == 'bluetooth_pair':
+                # 小米系统配对框使用独立资源 ID；Appium 的 XPath 对该系统浮窗
+                # 可能返回空列表，因此按 ID 单独定位并核对按钮文案。
+                buttons = []
+                for resource in ('com.android.settings:id/pairing_accept_button', 'android:id/button1'):
+                    buttons = [e for e in a.driver.find_elements('id', resource)
+                               if e.is_displayed() and e.is_enabled() and e.text in ('Pair', '配对')]
+                    if buttons:
+                        break
+            else:
+                buttons = [e for e in a.driver.find_elements(spec['by'], spec['value'])
+                           if e.is_displayed() and e.is_enabled()]
             if len(buttons) != 1:
                 raise TestBlocked(f'已识别 {kind}，但安全操作按钮不唯一或缺失；请更新弹窗定位。')
             a.capture('popup-' + kind)

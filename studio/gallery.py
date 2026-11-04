@@ -504,20 +504,29 @@ class GalleryPage:
         self._watermark_text(Image.open(io.BytesIO(self.d.get_screenshot_as_png())).convert('RGB'),
                              'media-detail', video=video)
 
-    def assert_latest_video_duration(self, expected_seconds, tolerance=5):
-        """读取最新视频缩略图卡片显示的 mm:ss，并允许给定误差。"""
-        self.open()
-        values = [e.text.strip() for e in self.d.find_elements(
-            'xpath', f"//*[@package='{self.package}' and @text]") if e.is_displayed()]
+    def assert_latest_video_duration(self, expected_seconds, tolerance=5, timeout=900):
+        """等待传输和缩略图刷新，读取视频卡片显示的 mm:ss。"""
+        import time
+        deadline = time.monotonic() + timeout
         durations = []
-        for value in values:
-            if re.fullmatch(r'\d{1,2}:\d{2}', value):
-                minute, second = map(int, value.split(':'))
-                durations.append((minute * 60 + second, value))
-        matches = [(seconds, value) for seconds, value in durations
-                   if abs(seconds - expected_seconds) <= tolerance]
-        if not matches:
-            raise AssertionError(f'视频缩略图未显示 {expected_seconds}±{tolerance} 秒：' + ' | '.join(values))
+        while True:
+            self.open()
+            values = [e.text.strip() for e in self.d.find_elements(
+                'xpath', f"//*[@package='{self.package}' and @text]") if e.is_displayed()]
+            durations = []
+            for value in values:
+                if re.fullmatch(r'\d{1,2}:\d{2}', value):
+                    minute, second = map(int, value.split(':'))
+                    durations.append((minute * 60 + second, value))
+            matches = [(seconds, value) for seconds, value in durations
+                       if abs(seconds - expected_seconds) <= tolerance]
+            if matches:
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError(
+                    f'等待 {timeout} 秒后视频缩略图仍未显示 {expected_seconds}±{tolerance} 秒；'
+                    f'实际时长：{[value for _, value in durations]}。')
+            time.sleep(min(10, max(0, deadline - time.monotonic())))
         actual, shown = matches[0]
         self.a.log('video-thumbnail-duration', {'actual': actual, 'shown': shown, 'expected': expected_seconds})
 

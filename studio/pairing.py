@@ -109,6 +109,10 @@ class PairingPage:
             if not tabs:
                 raise TestBlocked('登录后未找到首页导航，无法返回 Add Device。')
             tabs[0].click()
+            if a.find('pair.home_title') and not a.find('pair.add'):
+                # 登录账号可能恢复云端已绑定设备；本用例需要从空设备页重新配对。
+                from .home_device import HomeDevicePage
+                HomeDevicePage(a).unbind()
             a.wait(lambda: a.find('pair.add'), '登录后返回 Add Device 首页', 12)
             a.click('pair.add')
         a.element('pair.models_title', 12)
@@ -210,12 +214,28 @@ class PairingPage:
         a = self.a
         name = a.context['glasses_name']
         pairing_prompts_before = a.popups.pairing_accepted
+        last_scroll = 0.0
+        scroll_count = 0
         def target():
+            nonlocal last_scroll, scroll_count
             found = [e for e in a.driver.find_elements('id', self.options['device_name_id'])
                      if e.is_displayed() and e.text == name]
             if len(found) > 1:
                 raise TestBlocked('搜索到多个同名设备，无法唯一确认本轮眼镜。')
-            return found[0] if found else None
+            if found:
+                return found[0]
+            if scroll_count < 6 and time.monotonic() - last_scroll >= 2:
+                lists = [e for e in a.driver.find_elements('id', a.context['config']['package'] + ':id/recycler_devices')
+                         if e.is_displayed()]
+                if len(lists) == 1:
+                    rect = lists[0].rect
+                    x = int(rect['x'] + rect['width'] / 2)
+                    a.driver.swipe(x, int(rect['y'] + rect['height'] * .8),
+                                   x, int(rect['y'] + rect['height'] * .25), 450)
+                    scroll_count += 1
+                    last_scroll = time.monotonic()
+                    a.log('pair-search-scroll', {'target': name, 'count': scroll_count})
+            return None
         try:
             device = a.wait(target, '搜索目标眼镜 ' + name, self.options['search_timeout'])
         except WaitTimeout:
@@ -226,6 +246,8 @@ class PairingPage:
                 raise
             a.log('pair-search-retry', name)
             retry[0].click()
+            scroll_count = 0
+            last_scroll = 0.0
             try:
                 device = a.wait(target, '重搜目标眼镜 ' + name, self.options['search_timeout'])
             except WaitTimeout as exc:
@@ -290,6 +312,14 @@ class PairingPage:
             a.click('pair.skip')
             a.element('pair.skip_title')
             a.click('pair.skip_confirm')
+            # On some G7 builds the first confirmation tap leaves the dialog
+            # visible. Confirm its actual dismissal before waiting for Home.
+            for _ in range(2):
+                if not a.find('pair.skip_title'):
+                    break
+                a.click('pair.skip_confirm')
+            if a.find('pair.skip_title'):
+                raise AssertionError('跳过引导确认框仍未关闭，无法确认绑定完成。')
             def bound_home():
                 if a.find('pair.models_title'):
                     raise BindingReturnedToModels('跳过引导后返回型号选择页，目标眼镜绑定未完成。')

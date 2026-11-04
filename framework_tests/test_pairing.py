@@ -59,6 +59,7 @@ class PopupTests(unittest.TestCase):
         self.a=Mock()
         self.a.context={'glasses_name':'DPVR G1_13E6','config':resolve(ROOT,'G系列','G1')}
         self.button=Mock()
+        self.button.text='Pair'
         self.a.driver.find_elements.return_value=[self.button]
         self.guard=PopupGuard(self.a)
 
@@ -67,6 +68,21 @@ class PopupTests(unittest.TestCase):
         self.assertTrue(self.guard.handle())
         self.button.click.assert_called_once()
         self.assertEqual(self.guard.pairing_accepted,1)
+
+    def test_xiaomi_pair_dialog_without_generic_title(self):
+        self.a.driver.page_source=xml('com.android.settings',
+                                      ['Pair with DPVR G1_13E6?', 'Pair'])
+        self.assertTrue(self.guard.handle())
+        self.button.click.assert_called_once()
+        self.assertEqual(self.a.driver.find_elements.call_args_list[0].args,
+                         ('id', 'com.android.settings:id/pairing_accept_button'))
+
+    def test_xiaomi_pair_dialog_rejects_other_device(self):
+        self.a.driver.page_source=xml('com.android.settings',
+                                      ['Pair with DPVR G1_9999?', 'Pair'])
+        with self.assertRaises(TestBlocked):
+            self.guard.handle()
+        self.button.click.assert_not_called()
 
     def test_wrong_device_or_prefix_collision_never_accepted(self):
         self.guard.pairing_active=True

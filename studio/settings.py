@@ -1,5 +1,5 @@
 """AI、拍摄及系统设置的最小公共页面动作。"""
-from .errors import TestBlocked
+from .errors import TestBlocked, WaitTimeout
 from .home_device import HomeDevicePage
 from io import BytesIO
 
@@ -169,15 +169,25 @@ class SettingsPage:
             found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource) if e.is_displayed()]
             if len(found) == 1:
                 control = found[0]
-                break
+                bounds = control.rect
+                screen = self.a.driver.get_window_size()
+                # 底部控件可能只露出一截，中心落在系统导航区时 click 不生效。
+                if bounds['y'] + bounds['height'] / 2 < screen['height'] * .9:
+                    break
             size = self.a.driver.get_window_size()
             self.a.driver.swipe(size['width'] // 2, int(size['height'] * .78),
                                 size['width'] // 2, int(size['height'] * .30), 400)
         if not control:
             raise AssertionError(f'{resource} 未出现在系统设置页。')
+        if control.rect['y'] + control.rect['height'] / 2 >= self.a.driver.get_window_size()['height'] * .9:
+            raise AssertionError(f'{resource} 仍被底部导航区遮挡，停止点击。')
+        self.a.log('settings-confirm-click', {'resource': resource, 'bounds': control.rect, 'count': 1})
         control.click()
-        button = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath',
-            "//*[@text='OK' or @text='Confirm']") if e.is_displayed() and e.is_enabled()), None), '确认按钮', 10)
+        try:
+            button = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath',
+                "//*[@text='OK' or @text='Confirm']") if e.is_displayed() and e.is_enabled()), None), '确认按钮', 10)
+        except WaitTimeout as exc:
+            raise AssertionError(f'点击 {resource} 后 APP 未显示确认按钮；请核对系统设置页响应。') from exc
         button.click()
         if success:
             # Android Toast 属于系统窗口，不带 APP package；限定包名会漏掉真实成功提示。

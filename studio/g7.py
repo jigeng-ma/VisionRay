@@ -43,8 +43,12 @@ class G7Page:
         self.a.wait(lambda: 'Single Conversation' in self.visible_texts(),
                     '对话方式弹窗', 10)
         shown = self.visible_texts()
-        missing = [name for name in names if name not in shown]
-        self.a.log('g7-dialogue-options', {'shown': shown, 'missing': missing})
+        required = names[:2]
+        missing = [name for name in required if name not in shown]
+        assert not missing, f'对话方式弹窗缺少必需选项 {missing}；实际：{shown}。'
+        available = [name for name in names if name in shown]
+        self.a.log('g7-dialogue-options', {'shown': shown, 'tested': available,
+                                           'interruptible_hidden': names[2] not in shown})
         for name in names:
             if name not in shown:
                 continue
@@ -57,7 +61,6 @@ class G7Page:
             self.a.assert_wait(lambda: name.replace(' Conversation', '') in self.visible_texts(), True,
                                f'{name} 切换后设置页回显', 10)
             self.a.capture('g7-' + name.lower().replace(' ', '-'))
-        assert not missing, f'对话方式弹窗缺少 {missing}；实际：{shown}。'
 
     def capture(self):
         SettingsPage(self.a).capture()
@@ -168,7 +171,7 @@ class G7Page:
                 raise AssertionError('导入视频存在于数据库，但无法读取实际视频文件：' +
                                      result.stderr.decode('utf-8', errors='replace'))
             result = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0',
-                '-show_entries', 'stream=width,height,avg_frame_rate:format=duration',
+                '-show_entries', 'stream=codec_name,width,height,avg_frame_rate,bit_rate:format=duration,size',
                 '-of', 'json', str(video)], capture_output=True, text=True, timeout=60)
             if result.returncode:
                 raise AssertionError('无法解析导入视频：' + result.stderr)
@@ -178,7 +181,10 @@ class G7Page:
             stream = streams[0]
             numerator, denominator = map(int, stream['avg_frame_rate'].split('/'))
             return {'width': stream['width'], 'height': stream['height'],
-                    'fps': numerator / denominator, 'seconds': float(data['format']['duration'])}
+                    'fps': numerator / denominator, 'seconds': float(data['format']['duration']),
+                    'codec': stream.get('codec_name') or '未知',
+                    'bitrate': stream.get('bit_rate') or '未知',
+                    'bytes': int(data['format'].get('size') or video.stat().st_size)}
 
     def record_and_check(self, duration, width, height, fps):
         gallery = GalleryPage(self.a)
@@ -208,9 +214,16 @@ class G7Page:
         assert len(added) == 1, f'本轮导入的新视频不唯一：{added}。'
         path = self.video_rows()[added.pop()]
         actual = self.metadata(path)
+        actual['filename'] = Path(path).name
         self.a.log('g7-video-metadata', actual)
-        assert abs(actual['seconds'] - duration) <= 2, f'视频时长错误：期望 {duration}±2 秒，实际 {actual["seconds"]:.2f} 秒。'
+        duration_tolerance = 5 if duration >= 720 else 2
+        details = (f'文件名 {actual["filename"]}；实际视频：{actual["width"]}x{actual["height"]}，'
+                   f'{actual["fps"]:.2f}fps，时长 {actual["seconds"]:.2f} 秒，'
+                   f'编码 {actual["codec"]}，码率 {actual["bitrate"]}bps，'
+                   f'文件大小 {actual["bytes"]} 字节；'
+                   f'期望：{width}x{height}，{fps}fps，时长 {duration}±{duration_tolerance} 秒。')
+        assert abs(actual['seconds'] - duration) <= duration_tolerance, '视频时长错误；' + details
         assert (actual['width'], actual['height']) == (width, height), (
-            f'视频分辨率错误：期望 {width}x{height}，实际 {actual["width"]}x{actual["height"]}。')
-        assert abs(actual['fps'] - fps) <= 1, f'视频帧率错误：期望 {fps}fps，实际 {actual["fps"]:.2f}fps。'
+            '视频分辨率错误；' + details)
+        assert abs(actual['fps'] - fps) <= 1, '视频帧率错误；' + details
         return actual

@@ -132,7 +132,13 @@ def test_auto_save_album(android):
 
 def test_capture_video_duration(android):
     def action():
-        page = SettingsPage(android); page.capture(); page.set_duration('video_duration', '12Min')
+        if android.context['config'].get('model') == 'G7':
+            from studio.g7 import G7Page
+            # G7 limits duration by video specification. Select a specification
+            # that offers 12Min before checking the duration control.
+            G7Page(android).set_video(1920, 1080, 60, 720)
+        else:
+            page = SettingsPage(android); page.capture(); page.set_duration('video_duration', '12Min')
         gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
         BleMediaCommands(android).record_video(duration=720)
         # 长录像同步和导入各按录像时长加 3 分钟等待；每 5 分钟检查一次。
@@ -140,7 +146,8 @@ def test_capture_video_duration(android):
             if gallery.pending_count_or_zero('home') >= before + 1:
                 break
             if _ < 3:
-                __import__('time').sleep(300)
+                # 每 20 秒读取一次会话，避免 5 分钟等待触发 Appium 的 180 秒空闲超时。
+                BleMediaCommands(android)._hold(300)
         else:
             raise AssertionError('录像结束后 15 分钟内未出现新增媒资。')
         gallery.import_from('home', timeout=720 + 180)
