@@ -8,10 +8,9 @@ set "VISIONRAY_LOG=%TEMP%\download_visionray.log"
 set "VISIONRAY_TEMP_PS=%TEMP%\download_visionray_%RANDOM%.ps1"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$s=[IO.File]::ReadAllText($env:VISIONRAY_EMBEDDED,[Text.Encoding]::UTF8); $m=':: POWERSHELL_START'; [IO.File]::WriteAllText($env:VISIONRAY_TEMP_PS,$s.Substring($s.LastIndexOf($m)+$m.Length),(New-Object System.Text.UTF8Encoding($true)))"
 if errorlevel 1 (echo Could not load embedded script. & pause & exit /b 1)
-if defined VISIONRAY_DEST (powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%VISIONRAY_TEMP_PS%" -Destination "%VISIONRAY_DEST%" > "%VISIONRAY_LOG%" 2>&1) else (powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%VISIONRAY_TEMP_PS%" > "%VISIONRAY_LOG%" 2>&1)
+if defined VISIONRAY_DEST (powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%VISIONRAY_TEMP_PS%" -Destination "%VISIONRAY_DEST%") else (powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%VISIONRAY_TEMP_PS%")
 set "VISIONRAY_RC=%ERRORLEVEL%"
 del /q "%VISIONRAY_TEMP_PS%" >nul 2>&1
-type "%VISIONRAY_LOG%"
 echo.
 echo Log: %VISIONRAY_LOG%
 if not "%VISIONRAY_RC%"=="0" echo Failed. Exit code: %VISIONRAY_RC%
@@ -20,6 +19,8 @@ exit /b %VISIONRAY_RC%
 :: POWERSHELL_START
 param([string]$Destination = (Join-Path (Get-Location).Path 'VisionRay'))
 $ErrorActionPreference = 'Stop'
+if ($env:VISIONRAY_LOG) { Start-Transcript -Path $env:VISIONRAY_LOG -Force | Out-Null }
+Write-Host '正在检查 Git 和项目版本，请稍候...'
 $repo = 'https://github.com/jigeng-ma/VisionRay.git'
 function Find-Git {
     $command = Get-Command git -ErrorAction SilentlyContinue
@@ -35,20 +36,24 @@ $gitExe = Find-Git
 if (-not $gitExe) {
     Write-Host '未找到 Git，正在尝试自动安装...'
     if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host '正在通过 Windows 包管理器安装 Git，此步骤可能需要数分钟...'
         & winget install --id Git.Git --exact --source winget --silent --accept-package-agreements --accept-source-agreements
         if ($LASTEXITCODE -ne 0) { Write-Warning 'winget 安装 Git 失败，尝试下载安装包。' }
         $gitExe = Find-Git
     }
     if (-not $gitExe) {
         try {
+            Write-Host '正在查询 Git 官方安装包...'
             $release = Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest'
             $asset = $release.assets | Where-Object { $_.name -match '^Git-[\d.]+-64-bit\.exe$' } | Select-Object -First 1
             if (-not $asset) { throw '未找到 Windows 64 位 Git 安装包' }
             $installer = Join-Path $env:TEMP $asset.name
+            Write-Host "正在下载 $($asset.name)..."
             Invoke-WebRequest $asset.browser_download_url -OutFile $installer
             if ((Get-AuthenticodeSignature -LiteralPath $installer).Status -ne 'Valid') {
                 throw 'Git 安装包数字签名校验未通过'
             }
+            Write-Host '正在安装 Git，请等待安装程序完成...'
             $process = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT','/NORESTART','/NOCANCEL','/SP-' -Wait -PassThru -WindowStyle Hidden
             if ($process.ExitCode -ne 0) { throw "Git 安装程序返回 $($process.ExitCode)" }
             $gitExe = Find-Git
@@ -76,6 +81,7 @@ if (Test-Path -LiteralPath (Join-Path $Destination '.git')) {
         exit 1
     }
     $before = (& $gitExe -C $Destination rev-parse HEAD).Trim()
+    Write-Host "正在查询远端 $branch 分支的最新版本..."
     $remoteLine = (& $gitExe -C $Destination ls-remote --exit-code origin "refs/heads/$branch")
     if ($LASTEXITCODE -ne 0 -or -not $remoteLine) {
         Write-Error "无法查询远端 $branch 分支。请检查网络和 GitHub 权限。"
@@ -87,7 +93,8 @@ if (Test-Path -LiteralPath (Join-Path $Destination '.git')) {
         Write-Host '已经是最新版本，无需下载。'
         exit 0
     }
-    & $gitExe -C $Destination fetch origin "refs/heads/$branch"
+    Write-Host '正在下载新增提交...'
+    & $gitExe -C $Destination fetch --progress origin "refs/heads/$branch"
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     & $gitExe -C $Destination merge-base --is-ancestor HEAD FETCH_HEAD
     if ($LASTEXITCODE -ne 0) {
@@ -107,7 +114,8 @@ if (Test-Path -LiteralPath (Join-Path $Destination '.git')) {
     Write-Error "目标目录已存在但不是 Git 仓库：$Destination。请指定另一个空目录。"
     exit 1
 } else {
-    & $gitExe clone --depth 1 --single-branch $repo $Destination
+    Write-Host "首次下载项目到：$Destination"
+    & $gitExe clone --progress --depth 1 --single-branch $repo $Destination
     if ($LASTEXITCODE -ne 0) {
         Write-Error '下载失败。若仓库需要权限，请先登录 GitHub 或配置 Git 凭据，再重试。'
         exit 1
