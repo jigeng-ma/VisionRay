@@ -216,7 +216,7 @@ def install(serial: str, apk: Path, package: str | None = None, *, replace=False
                     nodes = list(ElementTree.fromstring(xml).iter())
                 except ElementTree.ParseError:
                     nodes = []
-                if any(node.get('text') == 'VisionRay' for node in nodes):
+                if nodes:
                     dialog_seen = True
                     def tap(node):
                         x1, y1, x2, y2 = map(int, re.findall(r'\d+', node.get('bounds', '')))
@@ -226,7 +226,7 @@ def install(serial: str, apk: Path, package: str | None = None, *, replace=False
                                      and node.get('checked') == 'false'), None)
                     if remember is not None:
                         tap(remember)
-                    button = next((node for node in nodes if node.get('text') in ('Install', '继续安装')
+                    button = next((node for node in nodes if node.get('text') in ('Install', 'Continue', '安装', '继续安装')
                                    and node.get('enabled') == 'true'), None)
                     if button is not None:
                         tap(button)
@@ -239,10 +239,13 @@ def install(serial: str, apk: Path, package: str | None = None, *, replace=False
     else:
         result = subprocess.run(command, text=True, capture_output=True, check=False)
     if result.returncode or "Success" not in result.stdout:
-        detail = result.stdout + result.stderr
-        if 'INSTALL_FAILED_USER_RESTRICTED' in detail and manufacturer == 'xiaomi':
+        detail = (result.stdout + result.stderr).strip()
+        if not detail:
+            detail = (f'ADB 安装 APP 失败（退出码 {result.returncode}，手机厂商 {manufacturer or "未知"}）；'
+                      'ADB 未返回错误文字。')
+        if manufacturer == 'xiaomi':
             detail += (f'\n小米 USB 安装弹窗检测：{dialog_seen}，确认点击次数：{tap_count}。'
-                       '请检查开发者选项中的 USB 安装，以及 USB 安装管理中的 VisionRay 禁止记录。')
+                       '请检查手机上的安装确认或拦截提示，以及开发者选项中的“通过 USB 安装”。')
         raise RuntimeError(detail)
     return result.stdout.strip()
 

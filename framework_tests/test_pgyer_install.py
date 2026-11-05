@@ -36,3 +36,11 @@ class FreshInstallTests(unittest.TestCase):
         self.assertEqual(run.call_count, 3)
         self.assertEqual(run.call_args_list[-1].args[0],
                          ['adb', '-s', 'phone', 'install', 'current.apk'])
+
+    @patch('studio.pgyer.subprocess.run')
+    def test_empty_adb_failure_reports_exit_code(self, run):
+        run.side_effect = [Mock(returncode=1, stdout='', stderr=''),
+                           Mock(returncode=0, stdout='Other', stderr=''),
+                           Mock(returncode=1, stdout='', stderr='')]
+        with self.assertRaisesRegex(RuntimeError, 'ADB 安装 APP 失败（退出码 1'):
+            install('phone', Path('current.apk'), 'visionray')

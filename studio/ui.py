@@ -5,6 +5,7 @@ import queue
 import threading
 import hashlib
 import re
+import traceback
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from .config import catalog, resolve_device, model_from_name
@@ -512,7 +513,15 @@ class App(tk.Tk):
             try:
                 self.events.put((action, fn()))
             except Exception as exc:
-                detail = str(exc).strip() or type(exc).__name__
+                trace = traceback.format_exc()
+                error_log = self.root_dir / 'runs' / 'workbench-errors.log'
+                error_log.parent.mkdir(parents=True, exist_ok=True)
+                with error_log.open('a', encoding='utf-8') as output:
+                    output.write(trace + '\n')
+                detail = str(exc).strip()
+                if not detail:
+                    frame = traceback.extract_tb(exc.__traceback__)[-1]
+                    detail = f'{type(exc).__name__}：{Path(frame.filename).name}:{frame.lineno}；详见 {error_log}'
                 self.events.put(('error', detail))
         threading.Thread(target=worker, daemon=True).start()
 
