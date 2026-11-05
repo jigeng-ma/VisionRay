@@ -75,6 +75,7 @@ if (-not $gitExe) {
 }
 Write-Host 'Git OK'
 $Destination = [IO.Path]::GetFullPath($Destination)
+Write-Host "项目目录：$Destination"
 if (Test-Path -LiteralPath (Join-Path $Destination '.git')) {
     $origin = (& $gitExe -C $Destination remote get-url origin 2>$null)
     if ($LASTEXITCODE -ne 0 -or $origin -notmatch '(^|[:/])jigeng-ma/VisionRay(\.git)?$') {
