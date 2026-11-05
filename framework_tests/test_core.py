@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 from zipfile import ZipFile, ZIP_DEFLATED
 from xml.sax.saxutils import escape
-from studio.workbook import Mapping, inspect, export
+from studio.workbook import Mapping, inspect, export, automation_count
 from studio.config import merge
 from studio.runner import execute, RunLock, ordered_plan, pairing_result
 from studio.ui import summarize_selected
@@ -45,6 +45,18 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(len(data['模块']['warnings']), 1)
         self.assertEqual(data['模块']['ignored_id_only'], 1)
         self.assertEqual(data['空表']['cases'], [])
+
+    def test_automation_count_uses_workbook_ids(self):
+        fixture(self.file, {'G7': [
+            {'A': '用例编号', 'B': '自动化编号', 'F': '用例标题', 'M': '实际结果'},
+            {'A': 'Cam_011', 'B': 'VisionRay_0154', 'F': '录制'},
+            {'A': 'Cam_012', 'F': '尚未编号'},
+            {'A': 'Cam_013', 'B': '错误编号', 'F': '无效编号'},
+        ]})
+        module = inspect(self.file, Mapping())['G7']
+        self.assertEqual([case['automation_id'] for case in module['cases']],
+                         ['VisionRay_0154', '', '错误编号'])
+        self.assertEqual(automation_count(module), 1)
 
     def test_export_matches_ids_preserves_source_and_clears_unselected(self):
         fixture(self.file, {'模块': self.rows + [{'A': '002', 'F': '另一条', 'M': 'Failed'}], '未选': self.rows})

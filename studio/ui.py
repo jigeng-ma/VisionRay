@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from .config import catalog, resolve_device, model_from_name
 from .devices import Adb
-from .workbook import Mapping, inspect, LABELS, export
+from .workbook import Mapping, inspect, LABELS, export, automation_count
 from .runner import execute, execute_many, registry, case_applies
 
 PRODUCT_LABELS = {'G系列': 'G1/G3/G6'}
@@ -330,7 +330,7 @@ class App(tk.Tk):
             assign.pack_forget()
         columns = ('selected', 'module', 'target', 'count', 'ready', 'validation', 'progress')
         self.tree = ttk.Treeview(modules, columns=columns, show='headings', selectmode='browse', height=6)
-        for key, label, width in zip(columns, ['选择', '模块', '执行设备', '用例数', '已实现', '检查结果', '本轮结果'], [50, 210, 165, 65, 65, 180, 180]):
+        for key, label, width in zip(columns, ['选择', '模块', '执行设备', '用例数', '自动化编号数', '检查结果', '本轮结果'], [50, 210, 165, 65, 100, 180, 180]):
             self.tree.heading(key, text=label)
             self.tree.column(key, width=width, minwidth=45, stretch=key in ('module', 'validation', 'progress'))
         scroll = ttk.Scrollbar(modules, orient='vertical', command=self.tree.yview)
@@ -707,16 +707,9 @@ class App(tk.Tk):
     def refresh_coverage(self):
         if not self.modules or not hasattr(self, 'tree'):
             return
-        targets = self.target_queue or [{'product': product_key(self.product.get()), 'model': self.model.get()}]
-        scopes = [(target, registry(self.root_dir, target['product'])) for target in targets]
         for row in self.tree.get_children():
             name = self.tree.set(row, 'module')
-            index = self.target_index(name) if self.target_queue else 0
-            relevant = [scopes[index]] if index is not None else scopes
-            ready = sum(any((item := entries.get((name, c['id']))) and case_applies(item, target)
-                                for target, entries in relevant)
-                            for c in self.modules[name]['cases'])
-            self.tree.set(row, 'ready', ready)
+            self.tree.set(row, 'ready', automation_count(self.modules[name]))
 
     def context(self):
         phone = self.devices_by_label.get(self.phone.get())
@@ -809,7 +802,7 @@ class App(tk.Tk):
         if row:
             name = self.tree.set(row, 'module')
             m = self.modules[name]
-            messagebox.showinfo(name, '\n'.join(m['warnings']) or m['reason'] or '编号校验通过。用例实现覆盖情况见“已实现”列。')
+            messagebox.showinfo(name, '\n'.join(m['warnings']) or m['reason'] or '编号校验通过。自动化编号数量见“自动化编号数”列。')
 
     def render_selection(self):
         for row in self.tree.get_children():
@@ -956,7 +949,7 @@ class App(tk.Tk):
                     self.selected = set(self.saved_state.get('selected', ())) & set(self.modules)
                     self.tree.delete(*self.tree.get_children())
                     for name, m in self.modules.items():
-                        ready = sum((name, c['id']) in entries for c in m['cases'])
+                        ready = automation_count(m)
                         check = f'{len(m["warnings"])} 项问题，双击查看' if m['warnings'] else m['reason'] or (f'忽略 {m["ignored_id_only"]} 行仅编号' if m['ignored_id_only'] else f'编号有效 / 表头第 {m["header"]} 行')
                         self.tree.insert('', 'end', values=('☐', name, '—', len(m['cases']), ready, check, '未执行'),
                                          tags=('invalid',) if m['warnings'] or not m['cases'] else ())

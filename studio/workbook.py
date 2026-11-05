@@ -78,6 +78,7 @@ def read_sheet(xml, shared, mapping):
     rows, warnings, seen = [], [], set()
     ignored = 0
     header = mapping.header_row or None
+    automation_col = None
     idcol = mapping.id_col.upper()
     header_aliases = {'用例编号', '用例ID', '用例 ID', 'Case ID', 'case_id', '测试编号'}
     for match in ROW.finditer(xml):
@@ -95,8 +96,11 @@ def read_sheet(xml, shared, mapping):
                 candidate, _ = value(cells[idcol], shared)
                 if candidate in header_aliases:
                     header = number
+        if number == header:
+            automation_col = next((col for col, raw in cells.items()
+                                   if value(raw, shared)[0] in ('自动化编号', '自动化 ID', '自动化ID')), None)
             continue
-        if number <= header:
+        if not header or number < header:
             continue
         if set(cells) <= {idcol}:
             ignored += 1
@@ -113,9 +117,17 @@ def read_sheet(xml, shared, mapping):
             warnings.append(f'重复编号：{cid}（第 {number} 行）')
         seen.add(cid)
         title = value(cells.get('F', '<c/>'), shared)[0] or ''
-        rows.append({'id': cid, 'row': number, 'title': title})
+        automation_id = value(cells[automation_col], shared)[0] if automation_col in cells else None
+        rows.append({'id': cid, 'row': number, 'title': title,
+                     'automation_id': str(automation_id or '').strip()})
     return {'cases': rows, 'warnings': warnings, 'header': header, 'ignored_id_only': ignored,
             'reason': '' if header else '未识别到用例表头（汇总页或空表）'}
+
+
+def automation_count(module):
+    """工作台自动化数量只统计 Excel 自动化编号列中的有效编号。"""
+    return sum(bool(re.fullmatch(r'VisionRay_\d{4}', case.get('automation_id', '')))
+               for case in module['cases'])
 
 
 def inspect(path, mapping):
