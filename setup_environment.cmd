@@ -31,6 +31,24 @@ function Command-Path([string]$name) {
     if ($item) { return $item.Source }
     return $null
 }
+function Add-UserPath([string]$directory) {
+    if (-not $directory -or -not (Test-Path -LiteralPath $directory)) { return }
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $entries = @($userPath -split ';' | Where-Object { $_ })
+    if ($entries -notcontains $directory) {
+        [Environment]::SetEnvironmentVariable('Path', (($entries + $directory) -join ';'), 'User')
+    }
+    $env:Path = $directory + ';' + $env:Path
+}
+function Find-Installed([string]$file, [string[]]$roots) {
+    foreach ($directory in $roots) {
+        if (-not $directory -or -not (Test-Path -LiteralPath $directory)) { continue }
+        $match = Get-ChildItem -LiteralPath $directory -Filter $file -File -Recurse -ErrorAction SilentlyContinue |
+                 Select-Object -First 1
+        if ($match) { return $match.FullName }
+    }
+    return $null
+}
 function Report([string]$name, [bool]$ok, [string]$detail) {
     if ($ok) { Write-Host "$name OK" }
 }
@@ -120,10 +138,40 @@ if (-not $javac -and $env:JAVA_HOME) {
     $candidate = Join-Path $env:JAVA_HOME 'bin\javac.exe'
     if (Test-Path -LiteralPath $candidate) { $javac = $candidate }
 }
-if (-not $java -or -not $javac) {
+$jdk = if ($javac -and (Test-Path -LiteralPath $javac)) { Split-Path (Split-Path $javac -Parent) -Parent } else { $null }
+if (-not $jdk) {
+    $jdkRoots = @("$env:ProgramFiles\Eclipse Adoptium", "${env:ProgramFiles(x86)}\Eclipse Adoptium",
+                  "$env:LOCALAPPDATA\Programs\Eclipse Adoptium", (Join-Path $root '.tools\jdk17'))
+    $found = Find-Installed 'javac.exe' $jdkRoots
+    if ($found) { $jdk = Split-Path (Split-Path $found -Parent) -Parent }
+}
+if (-not $jdk) {
     Try-Winget 'EclipseAdoptium.Temurin.17.JDK'
-    $java = Command-Path 'java'
-    $javac = Command-Path 'javac'
+    $found = Find-Installed 'javac.exe' $jdkRoots
+    if ($found) { $jdk = Split-Path (Split-Path $found -Parent) -Parent }
+}
+if (-not $jdk -and -not $CheckOnly) {
+    try {
+        Write-Host '下载 JDK 17 中...'
+        $jdkRoot = Join-Path $root '.tools\jdk17'
+        New-Item -ItemType Directory -Force $jdkRoot | Out-Null
+        $archive = Join-Path $env:TEMP 'visionray-jdk17.zip'
+        Invoke-WebRequest 'https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jdk/hotspot/normal/eclipse' -OutFile $archive
+        Expand-Archive -LiteralPath $archive -DestinationPath $jdkRoot -Force
+        Remove-Item -LiteralPath $archive -Force
+        $found = Find-Installed 'javac.exe' @($jdkRoot)
+        if (-not $found) { throw '下载包中没有 javac.exe' }
+        $jdk = Split-Path (Split-Path $found -Parent) -Parent
+    } catch { Write-Host "JDK 自动下载失败：$($_.Exception.Message)" }
+}
+if ($jdk -and (Test-Path -LiteralPath (Join-Path $jdk 'bin\java.exe'))) {
+    if (-not $CheckOnly) {
+        [Environment]::SetEnvironmentVariable('JAVA_HOME', $jdk, 'User')
+        $env:JAVA_HOME = $jdk
+        Add-UserPath (Join-Path $jdk 'bin')
+    }
+    $java = Join-Path $jdk 'bin\java.exe'
+    $javac = Join-Path $jdk 'bin\javac.exe'
 }
 Report 'Java JDK' ([bool]($java -and $javac)) 'https://adoptium.net/temurin/releases/?version=17&os=windows'
 if (-not $java -or -not $javac) { $missing.Add('Java JDK：https://adoptium.net/temurin/releases/?version=17&os=windows') }
@@ -188,8 +236,68 @@ if ($node -and $npm) {
     if (-not $ready) { $missing.Add('Appium / UiAutomator2：npm install -g appium；appium driver install uiautomator2') }
 }
 
-if (-not (Command-Path 'ffprobe')) { Write-Host '可选：视频检查需 FFmpeg（https://ffmpeg.org/download.html）' }
-if (-not (Command-Path 'tesseract')) { Write-Host '可选：图片文字检查需 Tesseract（https://github.com/UB-Mannheim/tesseract/wiki）' }
+$ffprobe = Command-Path 'ffprobe'
+if (-not $ffprobe) {
+    $ffprobe = Find-Installed 'ffprobe.exe' @("$env:LOCALAPPDATA\Microsoft\WinGet\Packages",
+                                                "$env:ProgramFiles\FFmpeg", (Join-Path $root '.tools\ffmpeg'))
+}
+if (-not $ffprobe) {
+    Try-Winget 'Gyan.FFmpeg'
+    $ffprobe = Command-Path 'ffprobe'
+    if (-not $ffprobe) { $ffprobe = Find-Installed 'ffprobe.exe' @("$env:LOCALAPPDATA\Microsoft\WinGet\Packages") }
+}
+if (-not $ffprobe -and -not $CheckOnly) {
+    try {
+        Write-Host '下载 FFmpeg 中...'
+        $ffmpegRoot = Join-Path $root '.tools\ffmpeg'
+        New-Item -ItemType Directory -Force $ffmpegRoot | Out-Null
+        $archive = Join-Path $env:TEMP 'visionray-ffmpeg.zip'
+        Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $archive
+        Expand-Archive -LiteralPath $archive -DestinationPath $ffmpegRoot -Force
+        Remove-Item -LiteralPath $archive -Force
+        $ffprobe = Find-Installed 'ffprobe.exe' @($ffmpegRoot)
+        if (-not $ffprobe) { throw '下载包中没有 ffprobe.exe' }
+    } catch { Write-Host "FFmpeg 自动下载失败：$($_.Exception.Message)" }
+}
+if ($ffprobe -and -not $CheckOnly) { Add-UserPath (Split-Path $ffprobe -Parent) }
+Report 'FFmpeg / ffprobe' ([bool]$ffprobe) 'https://ffmpeg.org/download.html'
+if (-not $ffprobe) { $missing.Add('FFmpeg：https://ffmpeg.org/download.html') }
+
+$tesseract = Command-Path 'tesseract'
+if (-not $tesseract) {
+    $tesseract = Find-Installed 'tesseract.exe' @("$env:ProgramFiles\Tesseract-OCR",
+                                                   "${env:ProgramFiles(x86)}\Tesseract-OCR",
+                                                   "$env:LOCALAPPDATA\Microsoft\WinGet\Packages",
+                                                   (Join-Path $root '.tools\Tesseract-OCR'))
+}
+if (-not $tesseract) {
+    Try-Winget 'UB-Mannheim.TesseractOCR'
+    $tesseract = Command-Path 'tesseract'
+    if (-not $tesseract) { $tesseract = Find-Installed 'tesseract.exe' @("$env:ProgramFiles\Tesseract-OCR",
+                                                            "$env:LOCALAPPDATA\Microsoft\WinGet\Packages") }
+}
+if (-not $tesseract -and -not $CheckOnly) {
+    try {
+        Write-Host '下载 Tesseract OCR 中...'
+        $ocrRoot = Join-Path $root '.tools\Tesseract-OCR'
+        New-Item -ItemType Directory -Force $ocrRoot | Out-Null
+        $installer = Join-Path $env:TEMP 'visionray-tesseract.exe'
+        Invoke-WebRequest 'https://github.com/UB-Mannheim/tesseract/releases/download/v5.4.0.20240606/tesseract-ocr-w64-setup-5.4.0.20240606.exe' -OutFile $installer
+        Write-Host '安装 Tesseract OCR 中...'
+        $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$ocrRoot") -Wait -PassThru -WindowStyle Hidden
+        if ($process.ExitCode -ne 0) { throw "安装程序返回 $($process.ExitCode)" }
+        Remove-Item -LiteralPath $installer -Force
+        $tesseract = Find-Installed 'tesseract.exe' @($ocrRoot)
+        if (-not $tesseract) { throw '安装后未找到 tesseract.exe' }
+    } catch { Write-Host "Tesseract 自动安装失败：$($_.Exception.Message)" }
+}
+if ($tesseract -and -not $CheckOnly) {
+    Add-UserPath (Split-Path $tesseract -Parent)
+    [Environment]::SetEnvironmentVariable('TESSERACT_CMD', $tesseract, 'User')
+    $env:TESSERACT_CMD = $tesseract
+}
+Report 'Tesseract OCR' ([bool]$tesseract) 'https://github.com/UB-Mannheim/tesseract/wiki'
+if (-not $tesseract) { $missing.Add('Tesseract OCR：https://github.com/UB-Mannheim/tesseract/wiki') }
 if ($missing.Count) {
     Write-Host "`n需要处理："
     $missing | ForEach-Object { Write-Host "- $_" }
