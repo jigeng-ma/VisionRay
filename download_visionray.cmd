@@ -22,6 +22,10 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 if ($env:VISIONRAY_LOG) { Start-Transcript -Path $env:VISIONRAY_LOG -Force | Out-Null }
 function Fail([string]$message) { Write-Host "失败：$message"; exit 1 }
+if (-not $PSBoundParameters.ContainsKey('Destination') -and
+    (Test-Path -LiteralPath (Join-Path (Get-Location).Path '.git'))) {
+    $Destination = (Get-Location).Path
+}
 function Invoke-Quiet([string]$exe, [string[]]$arguments) {
     try { & $exe @arguments *> $null; return $LASTEXITCODE }
     catch { return 1 }
