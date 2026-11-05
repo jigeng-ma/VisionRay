@@ -9,7 +9,7 @@ class ReinstallPreparationTests(unittest.TestCase):
         self.context = {'phone': 'phone', 'glasses_name': 'DPVR G6_2831',
                         'config': {'package': 'test.app'}}
         self.adb = MagicMock()
-        self.adb.shell.return_value = 'package:/data/app/test.app/base.apk'
+        self.adb.shell.return_value = 'package:test.app'
         self.events = []
 
     def prepare(self, states, source=''):
@@ -53,6 +53,7 @@ class ReinstallPreparationTests(unittest.TestCase):
     def test_not_installed_needs_no_appium_session(self, start, android_cls):
         self.adb.shell.return_value = ''
         unbind_before_reinstall('.', self.context, self.adb, lambda *event: self.events.append(event))
+        self.adb.shell.assert_called_once_with('phone', 'pm', 'list', 'packages', 'test.app')
         start.assert_not_called()
         android_cls.assert_not_called()
 

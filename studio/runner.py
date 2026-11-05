@@ -35,7 +35,8 @@ def save_json(path, data):
 def unbind_before_reinstall(root, context, adb, emit):
     """卸载现有 APP 前尽量解除当前眼镜绑定。"""
     package = context['config']['package']
-    if 'package:' not in adb.shell(context['phone'], 'pm', 'path', package):
+    installed = adb.shell(context['phone'], 'pm', 'list', 'packages', package)
+    if f'package:{package}' not in installed.splitlines():
         return
     from .service import start
     from .android import Android
