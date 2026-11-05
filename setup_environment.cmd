@@ -85,8 +85,10 @@ function Python-Path {
 }
 function Installed-Drivers([string]$appiumPath) {
     if (-not $appiumPath) { return '' }
-    $ErrorActionPreference = 'Continue'
-    return (& $appiumPath driver list --installed 2>&1 | Out-String)
+    try {
+        $installed = & $appiumPath driver list --installed --json 2>$null | Out-String | ConvertFrom-Json
+        return [string]$installed.uiautomator2.version
+    } catch { return '' }
 }
 
 Write-Host '检查 VisionRay 运行环境中...'
@@ -223,26 +225,68 @@ if ($sdk) {
 Report 'Android SDK Platform-Tools / ADB' ([bool]($sdk -and $adb)) 'https://developer.android.com/tools/releases/platform-tools'
 if (-not $sdk -or -not $adb) { $missing.Add('ADB：https://developer.android.com/tools/releases/platform-tools') }
 
+if ($sdk) {
+    $buildTools = Get-ChildItem -LiteralPath (Join-Path $sdk 'build-tools') -Filter 'aapt2.exe' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $buildTools -and -not $CheckOnly) {
+        try {
+            $manager = Join-Path $sdk 'cmdline-tools\latest\bin\sdkmanager.bat'
+            if (-not (Test-Path -LiteralPath $manager)) {
+                Write-Host '下载 Android SDK 命令行工具中...'
+                $archive = Join-Path $env:TEMP 'visionray-android-commandline-tools.zip'
+                $unpack = Join-Path $env:TEMP 'visionray-android-commandline-tools'
+                Invoke-WebRequest 'https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip' -OutFile $archive
+                New-Item -ItemType Directory -Force $unpack | Out-Null
+                Expand-Archive -LiteralPath $archive -DestinationPath $unpack -Force
+                $latest = Join-Path $sdk 'cmdline-tools\latest'
+                New-Item -ItemType Directory -Force $latest | Out-Null
+                Copy-Item -Path (Join-Path $unpack 'cmdline-tools\*') -Destination $latest -Recurse -Force
+                Remove-Item -LiteralPath $archive -Force
+                $manager = Join-Path $latest 'bin\sdkmanager.bat'
+            }
+            if (-not (Test-Path -LiteralPath $manager)) { throw 'sdkmanager.bat 未找到' }
+            Write-Host '安装 Android SDK Build Tools 中...'
+            @(1..100 | ForEach-Object { 'y' }) | & $manager "--sdk_root=$sdk" --licenses *> $null
+            $result = Invoke-Quiet $manager @("--sdk_root=$sdk",'build-tools;35.0.0')
+            if ($result -ne 0) { throw "sdkmanager 返回 $result" }
+            $buildTools = Get-ChildItem -LiteralPath (Join-Path $sdk 'build-tools') -Filter 'aapt2.exe' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        } catch { Write-Host "Build Tools 自动安装失败：$($_.Exception.Message)" }
+    }
+    Report 'Android SDK Build Tools / aapt2' ([bool]$buildTools) 'https://developer.android.com/studio'
+    if (-not $buildTools) { $missing.Add('Android SDK Build Tools：请安装 build-tools;35.0.0，确保 SDK/build-tools/*/aapt2.exe 存在') }
+}
+
 if ($node -and $npm) {
     $appium = Command-Path 'appium.cmd'
-    if (-not $appium -and -not $CheckOnly) {
-        Write-Host '安装 Appium 中...'
-        $result = Invoke-Quiet $npm @('install','-g','appium','--fetch-retries=1','--fetch-timeout=30000')
-        if ($result -ne 0) { Write-Host 'Appium 自动安装失败。' }
+    $appiumVersion = if ($appium) { (& $appium --version 2>$null | Select-Object -First 1).Trim() } else { '' }
+    $serverRunning = $false
+    try {
+        $status = Invoke-RestMethod 'http://127.0.0.1:4723/status' -TimeoutSec 2
+        $serverRunning = [bool]$status.value.ready
+    } catch { }
+    if ($serverRunning -and -not $CheckOnly -and $appiumVersion -ne '3.3.0') {
+        $missing.Add('请先关闭正在运行的 Appium/工作台，再重新执行环境配置。')
+    } elseif ($appiumVersion -ne '3.3.0' -and -not $CheckOnly) {
+        Write-Host '安装 Appium 3.3.0 中...'
+        $result = Invoke-Quiet $npm @('install','-g','appium@3.3.0','--fetch-retries=1','--fetch-timeout=30000')
+        if ($result -ne 0) { Write-Host 'Appium 3.3.0 自动安装失败。' }
         $appium = Command-Path 'appium.cmd'
+        $appiumVersion = if ($appium) { (& $appium --version 2>$null | Select-Object -First 1).Trim() } else { '' }
     }
-    if ($appium -and -not $CheckOnly) {
+    if ($appium) {
         $drivers = Installed-Drivers $appium
-        if ($drivers -notmatch 'uiautomator2') {
-            Write-Host '安装 UiAutomator2 中...'
-            $result = Invoke-Quiet $appium @('driver','install','uiautomator2')
-            if ($result -ne 0) { Write-Host 'UiAutomator2 驱动安装失败。' }
+        if ($serverRunning -and $drivers -ne '7.0.0' -and -not $CheckOnly) {
+            $missing.Add('请先关闭正在运行的 Appium/工作台，再重新执行环境配置。')
+        } elseif ($drivers -ne '7.0.0' -and -not $CheckOnly) {
+            if ($drivers) { Invoke-Quiet $appium @('driver','uninstall','uiautomator2') | Out-Null }
+            Write-Host '安装 UiAutomator2 7.0.0 中...'
+            $result = Invoke-Quiet $appium @('driver','install','uiautomator2@7.0.0')
+            if ($result -ne 0) { Write-Host 'UiAutomator2 7.0.0 自动安装失败。' }
         }
     }
     $drivers = Installed-Drivers $appium
-    $ready = [bool]($appium -and $drivers -match 'uiautomator2')
-    Report 'Appium / UiAutomator2' $ready 'https://appium.io/docs/en/latest/quickstart/install/'
-    if (-not $ready) { $missing.Add('Appium / UiAutomator2：npm install -g appium；appium driver install uiautomator2') }
+    $ready = [bool]($appiumVersion -eq '3.3.0' -and $drivers -eq '7.0.0')
+    Report 'Appium 3.3.0 / UiAutomator2 7.0.0' $ready 'https://appium.io/docs/en/latest/quickstart/install/'
+    if (-not $ready) { $missing.Add("Appium 版本不匹配：当前 $appiumVersion，驱动 $drivers；需要 3.3.0 / 7.0.0") }
 }
 
 $ffprobe = Command-Path 'ffprobe'
