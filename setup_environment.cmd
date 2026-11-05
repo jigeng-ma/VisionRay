@@ -182,7 +182,12 @@ if (-not $node -or -not $npm) { Try-Winget 'OpenJS.NodeJS.LTS'; $node = Command-
 Report 'Node.js / npm' ([bool]($node -and $npm)) 'https://nodejs.org/en/download'
 if (-not $node -or -not $npm) { $missing.Add('Node.js LTS：https://nodejs.org/en/download') }
 
-$sdk = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME) | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'platform-tools\adb.exe')) } | Select-Object -First 1
+$sdkCandidates = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME,
+                   (Join-Path $root '.tools\android-sdk'),
+                   (Join-Path $env:LOCALAPPDATA 'Android\Sdk'),
+                   [Environment]::GetEnvironmentVariable('ANDROID_SDK_ROOT', 'User'),
+                   [Environment]::GetEnvironmentVariable('ANDROID_HOME', 'User'))
+$sdk = $sdkCandidates | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'platform-tools\adb.exe')) } | Select-Object -First 1
 if (-not $sdk -and (Test-Path -LiteralPath 'configs\environment.json')) {
     $configured = (Get-Content 'configs\environment.json' -Raw | ConvertFrom-Json).android_sdk
     if ($configured -and (Test-Path -LiteralPath (Join-Path $configured 'platform-tools\adb.exe'))) { $sdk = $configured }
@@ -202,13 +207,17 @@ if (-not $sdk -and -not $CheckOnly) {
         Expand-Archive -LiteralPath $zip -DestinationPath $sdk -Force
         Remove-Item -LiteralPath $zip -Force
         if (-not (Test-Path -LiteralPath (Join-Path $sdk 'platform-tools\adb.exe'))) { throw '压缩包中没有 adb.exe' }
-        [Environment]::SetEnvironmentVariable('ANDROID_SDK_ROOT', $sdk, 'User')
-        $env:ANDROID_SDK_ROOT = $sdk
-        $env:Path = (Join-Path $sdk 'platform-tools') + ';' + $env:Path
-        $adb = Command-Path 'adb'
     } catch {
         $sdk = $null
         Write-Host "ADB 自动安装失败：$($_.Exception.Message)"
+    }
+}
+if ($sdk) {
+    $adb = Join-Path $sdk 'platform-tools\adb.exe'
+    if (-not $CheckOnly) {
+        [Environment]::SetEnvironmentVariable('ANDROID_SDK_ROOT', $sdk, 'User')
+        $env:ANDROID_SDK_ROOT = $sdk
+        Add-UserPath (Join-Path $sdk 'platform-tools')
     }
 }
 Report 'Android SDK Platform-Tools / ADB' ([bool]($sdk -and $adb)) 'https://developer.android.com/tools/releases/platform-tools'

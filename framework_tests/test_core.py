@@ -12,6 +12,7 @@ from studio.workbook import Mapping, inspect, export, automation_count
 from studio.config import merge
 from studio.runner import execute, RunLock, ordered_plan, pairing_result
 from studio.ui import summarize_selected
+from studio.service import android_sdk
 
 
 def fixture(path, sheets):
@@ -57,6 +58,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual([case['automation_id'] for case in module['cases']],
                          ['VisionRay_0154', '', '错误编号'])
         self.assertEqual(automation_count(module), 1)
+
+    @patch('studio.service.environment', return_value=None)
+    @patch('studio.service.shutil.which', return_value=None)
+    def test_project_local_android_sdk_is_found(self, *_):
+        adb = self.root / '.tools' / 'android-sdk' / 'platform-tools' / 'adb.exe'
+        adb.parent.mkdir(parents=True)
+        adb.touch()
+        self.assertEqual(android_sdk(self.root), str(adb.parent.parent.resolve()))
 
     def test_export_matches_ids_preserves_source_and_clears_unselected(self):
         fixture(self.file, {'模块': self.rows + [{'A': '002', 'F': '另一条', 'M': 'Failed'}], '未选': self.rows})

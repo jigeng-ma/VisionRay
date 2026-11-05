@@ -28,16 +28,32 @@ def environment(name):
         return None
 
 
+def android_sdk(root, configured=''):
+    """Find the SDK used by the workbench, including the local setup bundle."""
+    root = Path(root)
+    local = Path(os.environ.get('LOCALAPPDATA', '')) if os.environ.get('LOCALAPPDATA') else None
+    candidates = [environment('ANDROID_SDK_ROOT'), environment('ANDROID_HOME'),
+                  configured, root / '.tools' / 'android-sdk']
+    if local:
+        candidates.extend((local / 'Android' / 'Sdk', local / 'Android' / 'sdk'))
+    adb = shutil.which('adb')
+    if adb and Path(adb).parent.name.lower() == 'platform-tools':
+        candidates.append(Path(adb).parent.parent)
+    for candidate in candidates:
+        if candidate and (Path(candidate) / 'platform-tools' / 'adb.exe').is_file():
+            return str(Path(candidate).resolve())
+    return None
+
+
 def start(root):
     if status():
         return 'Appium 已就绪（127.0.0.1:4723）。'
     root = Path(root)
     config = json.loads((root/'configs/environment.json').read_text(encoding='utf-8'))
-    sdk = next((value for value in (environment('ANDROID_SDK_ROOT'), environment('ANDROID_HOME'),
-                                    config.get('android_sdk'))
-                if value and (Path(value)/'platform-tools/adb.exe').is_file()), None)
+    sdk = android_sdk(root, config.get('android_sdk'))
     if not sdk:
-        raise RuntimeError('未找到 Android SDK；请设置 ANDROID_SDK_ROOT 或 ANDROID_HOME，或修改 configs/environment.json。')
+        raise RuntimeError('未找到 Android SDK 的 platform-tools/adb.exe；请运行 setup_environment.cmd，'
+                           '或在 configs/environment.json 的 android_sdk 填写 SDK 根目录。')
     command = shutil.which('appium.cmd') or shutil.which('appium')
     if not command:
         raise RuntimeError('未找到 Appium，请先安装 Appium 及 UiAutomator2 驱动。')
