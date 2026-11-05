@@ -512,7 +512,8 @@ class App(tk.Tk):
             try:
                 self.events.put((action, fn()))
             except Exception as exc:
-                self.events.put(('error', str(exc)))
+                detail = str(exc).strip() or type(exc).__name__
+                self.events.put(('error', detail))
         threading.Thread(target=worker, daemon=True).start()
 
     def mapping(self):

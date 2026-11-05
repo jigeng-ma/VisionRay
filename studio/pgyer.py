@@ -12,7 +12,7 @@ import time
 import zipfile
 from xml.etree import ElementTree
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
@@ -35,6 +35,10 @@ def fetch(url, headers=None):
         except HTTPError as exc:
             if exc.code != 403 or attempt:
                 raise RuntimeError(f'蒲公英请求失败（HTTP {exc.code}）：{url}') from exc
+            time.sleep(1)
+        except (TimeoutError, URLError) as exc:
+            if attempt:
+                raise RuntimeError(f'蒲公英连接失败或超时：{url}；{type(exc).__name__}: {exc}') from exc
             time.sleep(1)
 
 
