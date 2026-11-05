@@ -8,10 +8,9 @@ set "VISIONRAY_LOG=%TEMP%\setup_environment.log"
 set "VISIONRAY_TEMP_PS=%TEMP%\setup_environment_%RANDOM%.ps1"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$s=[IO.File]::ReadAllText($env:VISIONRAY_EMBEDDED,[Text.Encoding]::UTF8); $m=':: POWERSHELL_START'; [IO.File]::WriteAllText($env:VISIONRAY_TEMP_PS,$s.Substring($s.LastIndexOf($m)+$m.Length),(New-Object System.Text.UTF8Encoding($true)))"
 if errorlevel 1 (echo Could not load embedded script. & pause & exit /b 1)
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%VISIONRAY_TEMP_PS%" %VISIONRAY_CHECKONLY% > "%VISIONRAY_LOG%" 2>&1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%VISIONRAY_TEMP_PS%" %VISIONRAY_CHECKONLY%
 set "VISIONRAY_RC=%ERRORLEVEL%"
 del /q "%VISIONRAY_TEMP_PS%" >nul 2>&1
-type "%VISIONRAY_LOG%"
 echo.
 echo Log: %VISIONRAY_LOG%
 if not "%VISIONRAY_RC%"=="0" echo Failed. Exit code: %VISIONRAY_RC%
@@ -20,6 +19,8 @@ exit /b %VISIONRAY_RC%
 :: POWERSHELL_START
 param([switch]$CheckOnly)
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+if ($env:VISIONRAY_LOG) { Start-Transcript -Path $env:VISIONRAY_LOG -Force | Out-Null }
 $root = if ($env:VISIONRAY_EMBEDDED) { Split-Path -Parent $env:VISIONRAY_EMBEDDED }
         else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 Set-Location -LiteralPath $root
@@ -31,14 +32,17 @@ function Command-Path([string]$name) {
     return $null
 }
 function Report([string]$name, [bool]$ok, [string]$detail) {
-    $mark = if ($ok) { 'OK' } else { '缺少' }
-    Write-Host "[$mark] $name：$detail"
+    if ($ok) { Write-Host "$name OK" }
+}
+function Invoke-Quiet([string]$exe, [string[]]$arguments) {
+    try { & $exe @arguments *> $null; return $LASTEXITCODE }
+    catch { return 1 }
 }
 function Try-Winget([string]$id) {
     if ($CheckOnly -or -not (Command-Path 'winget')) { return }
-    Write-Host "正在安装 $id ..."
-    & winget install --id $id --exact --source winget --accept-package-agreements --accept-source-agreements --silent
-    if ($LASTEXITCODE -ne 0) { Write-Warning "$id 自动安装失败，请使用下方链接手动安装。" }
+    Write-Host "安装 $id 中..."
+    $result = Invoke-Quiet (Command-Path 'winget') @('install','--id',$id,'--exact','--source','winget','--accept-package-agreements','--accept-source-agreements','--silent')
+    if ($result -ne 0) { Write-Host "$id 自动安装失败。" }
     $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
                 [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + $env:Path
 }
@@ -67,8 +71,8 @@ function Installed-Drivers([string]$appiumPath) {
     return (& $appiumPath driver list --installed 2>&1 | Out-String)
 }
 
-Write-Host "VisionRay 环境检查：$root"
-if ($CheckOnly) { Write-Host '只检查模式：不会安装或更改配置。' }
+Write-Host '检查 VisionRay 运行环境中...'
+if ($CheckOnly) { Write-Host '只检查模式。' }
 
 $python = Python-Path
 if (-not $python) {
@@ -76,7 +80,7 @@ if (-not $python) {
     $python = Python-Path
 }
 Report 'Python 3.11+' ([bool]$python) 'https://www.python.org/downloads/windows/'
-if (-not $python) { $missing.Add('Python 3.11+：安装后重新运行本脚本') }
+if (-not $python) { $missing.Add('Python 3.11+：https://www.python.org/downloads/windows/') }
 
 if ($python -and (Test-Path -LiteralPath (Join-Path $root 'requirements.txt'))) {
     $venvPython = Join-Path $root '.venv\Scripts\python.exe'
@@ -87,8 +91,9 @@ if ($python -and (Test-Path -LiteralPath (Join-Path $root 'requirements.txt'))) 
     }
     if (Test-Path -LiteralPath $venvPython) {
         if (-not $CheckOnly) {
-            & $venvPython -m pip install -r requirements.txt
-            if ($LASTEXITCODE -ne 0) { $missing.Add('Python 依赖安装失败：请检查网络或 pip 错误') }
+            Write-Host '安装 Python 依赖中...'
+            $result = Invoke-Quiet $venvPython @('-m','pip','install','--disable-pip-version-check','--timeout','10','--retries','1','-q','-r','requirements.txt')
+            if ($result -ne 0) { $missing.Add('Python 依赖安装失败：请检查网络或 pip 错误') }
         }
         $packagesOk = $false
         try {
@@ -96,7 +101,9 @@ if ($python -and (Test-Path -LiteralPath (Join-Path $root 'requirements.txt'))) 
             $packagesOk = $LASTEXITCODE -eq 0
         } catch { }
         Report 'Python 依赖' $packagesOk 'requirements.txt / .venv'
-        if (-not $packagesOk) { $missing.Add('Python 依赖：运行 .venv\Scripts\python.exe -m pip install -r requirements.txt') }
+        if (-not $packagesOk -and -not ($missing | Where-Object { $_ -like 'Python 依赖安装失败*' })) {
+            $missing.Add('Python 依赖：运行 .venv\Scripts\python.exe -m pip install -r requirements.txt')
+        }
     } else {
         Report 'Python 依赖' $false '尚未创建 .venv'
         $missing.Add('Python 依赖：运行本脚本安装')
@@ -119,13 +126,13 @@ if (-not $java -or -not $javac) {
     $javac = Command-Path 'javac'
 }
 Report 'Java JDK' ([bool]($java -and $javac)) 'https://adoptium.net/temurin/releases/?version=17&os=windows'
-if (-not $java -or -not $javac) { $missing.Add('Java JDK：安装后设置 JAVA_HOME，重新打开终端') }
+if (-not $java -or -not $javac) { $missing.Add('Java JDK：https://adoptium.net/temurin/releases/?version=17&os=windows') }
 
 $node = Command-Path 'node'
 $npm = Command-Path 'npm.cmd'
 if (-not $node -or -not $npm) { Try-Winget 'OpenJS.NodeJS.LTS'; $node = Command-Path 'node'; $npm = Command-Path 'npm.cmd' }
 Report 'Node.js / npm' ([bool]($node -and $npm)) 'https://nodejs.org/en/download'
-if (-not $node -or -not $npm) { $missing.Add('Node.js LTS：安装后重新打开终端') }
+if (-not $node -or -not $npm) { $missing.Add('Node.js LTS：https://nodejs.org/en/download') }
 
 $sdk = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME) | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'platform-tools\adb.exe')) } | Select-Object -First 1
 if (-not $sdk -and (Test-Path -LiteralPath 'configs\environment.json')) {
@@ -139,6 +146,7 @@ if (-not $sdk -and $adb -and (Split-Path $adb -Leaf) -eq 'adb.exe' -and
 }
 if (-not $sdk -and -not $CheckOnly) {
     try {
+        Write-Host '下载 Android Platform-Tools 中...'
         $sdk = Join-Path $root '.tools\android-sdk'
         New-Item -ItemType Directory -Force $sdk | Out-Null
         $zip = Join-Path $env:TEMP 'visionray-platform-tools-windows.zip'
@@ -152,24 +160,26 @@ if (-not $sdk -and -not $CheckOnly) {
         $adb = Command-Path 'adb'
     } catch {
         $sdk = $null
-        Write-Warning "ADB 自动安装失败：$($_.Exception.Message)"
+        Write-Host "ADB 自动安装失败：$($_.Exception.Message)"
     }
 }
 Report 'Android SDK Platform-Tools / ADB' ([bool]($sdk -and $adb)) 'https://developer.android.com/tools/releases/platform-tools'
-if (-not $sdk -or -not $adb) { $missing.Add('ADB：安装 Platform-Tools，设置 ANDROID_SDK_ROOT，并把 platform-tools 加入 PATH') }
+if (-not $sdk -or -not $adb) { $missing.Add('ADB：https://developer.android.com/tools/releases/platform-tools') }
 
 if ($node -and $npm) {
     $appium = Command-Path 'appium.cmd'
     if (-not $appium -and -not $CheckOnly) {
-        & $npm install -g appium
-        if ($LASTEXITCODE -ne 0) { Write-Warning 'Appium 自动安装失败。' }
+        Write-Host '安装 Appium 中...'
+        $result = Invoke-Quiet $npm @('install','-g','appium','--fetch-retries=1','--fetch-timeout=30000')
+        if ($result -ne 0) { Write-Host 'Appium 自动安装失败。' }
         $appium = Command-Path 'appium.cmd'
     }
     if ($appium -and -not $CheckOnly) {
         $drivers = Installed-Drivers $appium
         if ($drivers -notmatch 'uiautomator2') {
-            & $appium driver install uiautomator2
-            if ($LASTEXITCODE -ne 0) { Write-Warning 'UiAutomator2 驱动安装失败。' }
+            Write-Host '安装 UiAutomator2 中...'
+            $result = Invoke-Quiet $appium @('driver','install','uiautomator2')
+            if ($result -ne 0) { Write-Host 'UiAutomator2 驱动安装失败。' }
         }
     }
     $drivers = Installed-Drivers $appium
@@ -178,8 +188,8 @@ if ($node -and $npm) {
     if (-not $ready) { $missing.Add('Appium / UiAutomator2：npm install -g appium；appium driver install uiautomator2') }
 }
 
-Report 'FFmpeg / ffprobe（视频检查）' ([bool](Command-Path 'ffprobe')) 'https://ffmpeg.org/download.html'
-Report 'Tesseract（图片文字检查）' ([bool](Command-Path 'tesseract')) 'https://github.com/UB-Mannheim/tesseract/wiki'
+if (-not (Command-Path 'ffprobe')) { Write-Host '可选：视频检查需 FFmpeg（https://ffmpeg.org/download.html）' }
+if (-not (Command-Path 'tesseract')) { Write-Host '可选：图片文字检查需 Tesseract（https://github.com/UB-Mannheim/tesseract/wiki）' }
 if ($missing.Count) {
     Write-Host "`n需要处理："
     $missing | ForEach-Object { Write-Host "- $_" }
