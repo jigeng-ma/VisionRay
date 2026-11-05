@@ -53,8 +53,15 @@ function Report([string]$name, [bool]$ok, [string]$detail) {
     if ($ok) { Write-Host "$name OK" }
 }
 function Invoke-Quiet([string]$exe, [string[]]$arguments) {
-    try { & $exe @arguments *> $null; return $LASTEXITCODE }
-    catch { return 1 }
+    try {
+        $output = & $exe @arguments 2>&1 | Out-String
+        $code = $LASTEXITCODE
+        if ($code -ne 0 -and $output.Trim()) {
+            $detail = ($output.Trim().Split("`n") | Select-Object -Last 3) -join ' | '
+            Write-Host "命令失败 ($code)：$detail"
+        }
+        return $code
+    } catch { Write-Host "命令失败：$($_.Exception.Message)"; return 1 }
 }
 function Try-Winget([string]$id) {
     if ($CheckOnly -or -not (Command-Path 'winget')) { return }
@@ -249,7 +256,23 @@ if ($sdk) {
             $result = Invoke-Quiet $manager @("--sdk_root=$sdk",'build-tools;35.0.0')
             if ($result -ne 0) { throw "sdkmanager 返回 $result" }
             $buildTools = Get-ChildItem -LiteralPath (Join-Path $sdk 'build-tools') -Filter 'aapt2.exe' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        } catch { Write-Host "Build Tools 自动安装失败：$($_.Exception.Message)" }
+        } catch {
+            Write-Host 'SDK Manager 未完成，尝试直接下载 Build Tools...'
+            try {
+                $archive = Join-Path $env:TEMP 'visionray-build-tools-35.zip'
+                $unpack = Join-Path $env:TEMP 'visionray-build-tools-35'
+                Invoke-WebRequest 'https://dl.google.com/android/repository/build-tools_r35_windows.zip' -OutFile $archive
+                New-Item -ItemType Directory -Force $unpack | Out-Null
+                Expand-Archive -LiteralPath $archive -DestinationPath $unpack -Force
+                $binary = Find-Installed 'aapt2.exe' @($unpack)
+                if (-not $binary) { throw '下载包中没有 aapt2.exe' }
+                $target = Join-Path $sdk 'build-tools\35.0.0'
+                New-Item -ItemType Directory -Force $target | Out-Null
+                Copy-Item -Path (Join-Path (Split-Path $binary -Parent) '*') -Destination $target -Recurse -Force
+                $buildTools = Get-Item -LiteralPath (Join-Path $target 'aapt2.exe')
+                Remove-Item -LiteralPath $archive -Force
+            } catch { Write-Host "Build Tools 下载失败：$($_.Exception.Message)" }
+        }
     }
     Report 'Android SDK Build Tools / aapt2' ([bool]$buildTools) 'https://developer.android.com/studio'
     if (-not $buildTools) { $missing.Add('Android SDK Build Tools：请安装 build-tools;35.0.0，确保 SDK/build-tools/*/aapt2.exe 存在') }
@@ -268,9 +291,9 @@ if ($node -and $npm) {
     } elseif ($appiumVersion -ne '3.3.0' -and -not $CheckOnly) {
         Write-Host '安装 Appium 3.3.0 中...'
         $result = Invoke-Quiet $npm @('install','-g','appium@3.3.0','--fetch-retries=1','--fetch-timeout=30000')
-        if ($result -ne 0) { Write-Host 'Appium 3.3.0 自动安装失败。' }
         $appium = Command-Path 'appium.cmd'
         $appiumVersion = if ($appium) { (& $appium --version 2>$null | Select-Object -First 1).Trim() } else { '' }
+        if ($result -ne 0 -and $appiumVersion -ne '3.3.0') { Write-Host 'Appium 3.3.0 自动安装失败。' }
     }
     if ($appium) {
         $drivers = Installed-Drivers $appium
@@ -280,7 +303,7 @@ if ($node -and $npm) {
             if ($drivers) { Invoke-Quiet $appium @('driver','uninstall','uiautomator2') | Out-Null }
             Write-Host '安装 UiAutomator2 7.0.0 中...'
             $result = Invoke-Quiet $appium @('driver','install','uiautomator2@7.0.0')
-            if ($result -ne 0) { Write-Host 'UiAutomator2 7.0.0 自动安装失败。' }
+            if ($result -ne 0 -and (Installed-Drivers $appium) -ne '7.0.0') { Write-Host 'UiAutomator2 7.0.0 自动安装失败。' }
         }
     }
     $drivers = Installed-Drivers $appium
