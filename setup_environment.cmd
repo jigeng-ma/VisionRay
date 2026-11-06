@@ -191,9 +191,9 @@ if (-not $node -or -not $npm) { Try-Winget 'OpenJS.NodeJS.LTS'; $node = Command-
 Report 'Node.js / npm' ([bool]($node -and $npm)) 'https://nodejs.org/en/download'
 if (-not $node -or -not $npm) { $missing.Add('Node.js LTS：https://nodejs.org/en/download') }
 
-$sdkCandidates = @($env:ANDROID_SDK_ROOT, $env:ANDROID_HOME,
-                   (Join-Path $root '.tools\android-sdk'),
+$sdkCandidates = @((Join-Path $root '.tools\android-sdk'),
                    (Join-Path $env:LOCALAPPDATA 'Android\Sdk'),
+                   $env:ANDROID_SDK_ROOT, $env:ANDROID_HOME,
                    [Environment]::GetEnvironmentVariable('ANDROID_SDK_ROOT', 'User'),
                    [Environment]::GetEnvironmentVariable('ANDROID_HOME', 'User'))
 $sdk = $sdkCandidates | Where-Object { $_ -and (Test-Path -LiteralPath (Join-Path $_ 'platform-tools\adb.exe')) } | Select-Object -First 1
@@ -225,7 +225,9 @@ if ($sdk) {
     $adb = Join-Path $sdk 'platform-tools\adb.exe'
     if (-not $CheckOnly) {
         [Environment]::SetEnvironmentVariable('ANDROID_SDK_ROOT', $sdk, 'User')
+        [Environment]::SetEnvironmentVariable('ANDROID_HOME', $sdk, 'User')
         $env:ANDROID_SDK_ROOT = $sdk
+        $env:ANDROID_HOME = $sdk
         Add-UserPath (Join-Path $sdk 'platform-tools')
     }
 }

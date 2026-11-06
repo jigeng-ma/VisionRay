@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 from pathlib import Path
 import shutil
 import subprocess
@@ -81,3 +82,28 @@ def start(root):
     except OSError:
         tail = []
     raise RuntimeError('Appium 未就绪：' + state + ('；服务输出：' + ' | '.join(tail) if tail else '') + '。')
+
+
+def restart_stale_sdk(root):
+    """Restart a local Appium listener that inherited a deleted Android SDK path."""
+    if os.name != 'nt':
+        raise RuntimeError('请重启 Appium 服务并重新运行环境配置。')
+    script = (
+        '$c=Get-NetTCPConnection -LocalPort 4723 -State Listen -ErrorAction Stop | '
+        'Where-Object {$_.LocalAddress -in @("127.0.0.1","0.0.0.0","::1")} | '
+        'Select-Object -First 1; '
+        'if (-not $c) {exit 2}; '
+        '$p=Get-CimInstance Win32_Process -Filter ("ProcessId="+$c.OwningProcess); '
+        'if (-not $p -or $p.CommandLine -notmatch "appium") {exit 3}; '
+        'Write-Output $p.ProcessId'
+    )
+    result = subprocess.run(['powershell.exe', '-NoProfile', '-Command', script],
+                            capture_output=True, text=True, timeout=15)
+    if result.returncode != 0 or not result.stdout.strip().isdigit():
+        raise RuntimeError('本机 4723 端口的服务无法确认是 Appium；请关闭该服务后重试。')
+    os.kill(int(result.stdout.strip()), signal.SIGTERM)
+    for _ in range(30):
+        if not status():
+            return start(root)
+        time.sleep(.5)
+    raise RuntimeError('旧 Appium 服务未退出；请关闭该服务后重试。')
