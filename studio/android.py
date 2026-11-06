@@ -17,14 +17,25 @@ class Android:
     def connect(self):
         from appium import webdriver
         from appium.options.android import UiAutomator2Options
+        from selenium.common.exceptions import WebDriverException
         config = self.context['config']
-        self.driver = webdriver.Remote(config['appium_url'], options=UiAutomator2Options().load_capabilities({
+        options = UiAutomator2Options().load_capabilities({
             'platformName': 'Android', 'appium:automationName': 'UiAutomator2',
             # 不传 appActivity：SplashActivity 会自行结束，UiAutomator2 会话恢复时
             # 若显式携带它可能把 APP 带回桌面。前台恢复统一由 ensure_foreground 的 Launcher Intent 完成。
             'appium:udid': self.context['phone'], 'appium:appPackage': config['package'],
             'appium:noReset': True,
-            'appium:autoLaunch': False, 'appium:newCommandTimeout': max(config.get('new_command_timeout', 60), 180)}))
+            'appium:autoLaunch': False, 'appium:newCommandTimeout': max(config.get('new_command_timeout', 60), 180)})
+        try:
+            self.driver = webdriver.Remote(config['appium_url'], options=options)
+        except WebDriverException as exc:
+            if 'Appium Settings app is not running' not in (exc.msg or ''):
+                raise
+            raise RuntimeError(
+                '手机上的 Appium Settings（io.appium.settings）服务未启动，无法创建 Appium 会话。'
+                '请检查 Appium Settings 的位置权限。如果是小米手机，也请检查后台自启动权限。'
+                f' Appium 原始错误：{exc.msg}'
+            ) from exc
         if os.environ.get('GLASSES_EVIDENCE_DIR'):
             (Path(os.environ['GLASSES_EVIDENCE_DIR'])/'session.json').write_text(json.dumps({
                 'url': config['appium_url'], 'session_id': self.driver.session_id}), encoding='utf-8')
