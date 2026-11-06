@@ -256,8 +256,9 @@ if ($sdk) {
             $result = Invoke-Quiet $manager @("--sdk_root=$sdk",'build-tools;35.0.0')
             if ($result -ne 0) { throw "sdkmanager 返回 $result" }
             $buildTools = Get-ChildItem -LiteralPath (Join-Path $sdk 'build-tools') -Filter 'aapt2.exe' -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $buildTools) { throw 'sdkmanager 未安装 aapt2.exe' }
         } catch {
-            Write-Host 'SDK Manager 未完成，尝试直接下载 Build Tools...'
+            Write-Host "SDK Manager 未完成（$($_.Exception.Message)），尝试直接下载 Build Tools..."
             try {
                 $archive = Join-Path $env:TEMP 'visionray-build-tools-35.zip'
                 $unpack = Join-Path $env:TEMP 'visionray-build-tools-35'
