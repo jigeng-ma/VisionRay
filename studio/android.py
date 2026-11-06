@@ -31,11 +31,20 @@ class Android:
         except WebDriverException as exc:
             if 'Appium Settings app is not running' not in (exc.msg or ''):
                 raise
-            raise RuntimeError(
-                '手机上的 Appium Settings（io.appium.settings）服务未启动，无法创建 Appium 会话。'
-                '请检查 Appium Settings 的位置权限。如果是小米手机，也请检查后台自启动权限。'
-                f' Appium 原始错误：{exc.msg}'
-            ) from exc
+            from .devices import Adb
+            adb = Adb()
+            try:
+                adb.shell(self.context['phone'], 'pm', 'grant', 'io.appium.settings',
+                          'android.permission.ACCESS_COARSE_LOCATION')
+                adb.shell(self.context['phone'], 'am', 'force-stop', 'io.appium.settings')
+                adb.shell(self.context['phone'], 'am', 'start', '-n', 'io.appium.settings/.Settings')
+                self.driver = webdriver.Remote(config['appium_url'], options=options)
+            except Exception as retry_exc:
+                raise RuntimeError(
+                    '自动修复 Appium Settings 位置权限并重试后，会话仍未建立。'
+                    '请检查该应用的位置权限和小米后台自启动权限。'
+                    f' 首次错误：{exc.msg}；重试错误：{retry_exc}'
+                ) from retry_exc
         if os.environ.get('GLASSES_EVIDENCE_DIR'):
             (Path(os.environ['GLASSES_EVIDENCE_DIR'])/'session.json').write_text(json.dumps({
                 'url': config['appium_url'], 'session_id': self.driver.session_id}), encoding='utf-8')
