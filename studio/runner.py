@@ -340,6 +340,10 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
     requested_version = context.get('app_version', '')
     if not requested_version.endswith('-debug'):
         raise ValueError('执行时必须提供 debug 版本号。')
+    from .locale import ensure_system_english
+    system_locale = ensure_system_english(adb, context['phone'], emit)
+    if system_locale:
+        context = dict(context, system_locale=system_locale)
     current_variant = None
 
     def install_variant(variant):
