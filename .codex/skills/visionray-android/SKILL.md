@@ -12,7 +12,7 @@ description: 编写或维护 VisionRay Android 自动化、接入新手机时，
 1. 记录 ADB 序列号、`ro.product.manufacturer`、型号和 Android 版本，确认 `adb devices -l` 为 `device`。先检查当前系统语言和 APP 语言；重装 APP 可能按手机语言初始化。不要把配置中的 `locale=en` 当成已实际切换手机语言。
 2. 用工作台指定版本完成一次卸载安装，核对手机实际 `versionName`。安装失败时保存 ADB 返回码、输出、手机焦点窗口和安装弹窗 XML。不要把安装失败继续归为用例失败。
 3. 建立 Appium 会话并读取一次真实 UI 树，再验证 APP 启动、前台恢复、权限弹窗和目标眼镜配对。会话失败先查 `runs/appium-service.log`、Android SDK 路径及手机上的 `io.appium.settings`，再改业务用例。
-4. 只对已观察到的厂商差异加分支；优先用资源 ID、当前包名和实际 UI 树定位，并保留已有三星手机路径。涉及媒体时另查相册、分享预览和播放器的真实布局。改完用该手机做最小实机复测，再跑受影响用例。
+4. 只对已观察到的厂商差异加分支；优先用资源 ID、当前包名和实际 UI 树定位，并保留已有三星手机路径。涉及媒体时另查相册、分享预览和播放器的真实布局；水印 OCR 同时需要 Python 的 `pytesseract` 和带 `eng` 数据的 `tesseract.exe`，不可仅凭其中一项显示“OK”。改完用该手机做最小实机复测，再跑受影响用例。
 
 ## 红米 K60 / HyperOS 已处理的差异
 

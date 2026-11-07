@@ -105,7 +105,7 @@ if ($python -and (Test-Path -LiteralPath (Join-Path $root 'requirements.txt'))) 
         }
         $packagesOk = $false
         try {
-            & $venvPython -c 'import pytest, appium, PIL' 2>$null
+            & $venvPython -c 'import pytest, appium, PIL, pytesseract' 2>$null
             $packagesOk = $LASTEXITCODE -eq 0
         } catch { }
         Report 'Python 依赖' $packagesOk 'requirements.txt / .venv'
@@ -350,6 +350,15 @@ if (-not $tesseract -and -not $CheckOnly) {
         $tesseract = Find-Installed 'tesseract.exe' @($ocrRoot)
         if (-not $tesseract) { throw '安装后未找到 tesseract.exe' }
     } catch { Write-Host "Tesseract 自动安装失败：$($_.Exception.Message)" }
+}
+if ($tesseract) {
+    try {
+        $languages = & $tesseract --list-langs 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0 -or $languages -notmatch '(?m)^eng\s*$') {
+            Write-Host 'Tesseract 缺少英文识别数据 eng.traineddata。'
+            $tesseract = $null
+        }
+    } catch { $tesseract = $null }
 }
 if ($tesseract -and -not $CheckOnly) {
     Add-UserPath (Split-Path $tesseract -Parent)
