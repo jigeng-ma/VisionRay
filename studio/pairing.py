@@ -97,6 +97,7 @@ class PairingPage:
         """G7 与 G1/G3/G6 共用 Add Device 的登录前置。"""
         a = self.a
         package = a.context['config']['package']
+        self.ensure_english_from_home()
         a.click('pair.add')
         destination = a.wait(lambda: 'models' if a.find('pair.models_title') else
                              ('login' if any(e.is_displayed() for e in a.driver.find_elements(
@@ -116,6 +117,47 @@ class PairingPage:
             a.wait(lambda: a.find('pair.add'), '登录后返回 Add Device 首页', 12)
             a.click('pair.add')
         a.element('pair.models_title', 12)
+
+    def ensure_english_from_home(self):
+        """新手机随系统语言显示中文时，先通过 APP 设置切到英文。"""
+        a = self.a
+        package = a.context['config']['package']
+        source = a.driver.page_source
+        if not isinstance(source, str) or '添加设备' not in source:
+            return
+        tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+        if len(tabs) < 3:
+            return
+        tabs[-1].click()
+        titles = [e for e in a.driver.find_elements('id', package + ':id/title') if e.is_displayed()]
+        if any(e.text == '我的账户' for e in titles):
+            about = next((e for e in titles if e.text == '关于App'), None)
+            if not about:
+                raise TestBlocked('APP 为中文，但未找到“关于App”语言设置入口。')
+            about.click()
+            language = a.wait(lambda: next((e for e in a.driver.find_elements('xpath',
+                f'//*[@package="{package}" and @text="语言"]') if e.is_displayed()), None),
+                '关于App中的语言入口', 12)
+            language.click()
+            english = a.wait(lambda: next((e for e in a.driver.find_elements('xpath',
+                f'//*[@package="{package}" and @text="English"]') if e.is_displayed()), None),
+                'English 语言选项', 12)
+            english.click()
+            a.log('app-language', 'English selected')
+            for _ in range(3):
+                tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+                if tabs:
+                    break
+                a.driver.press_keycode(4)
+            tabs = a.wait(lambda: [e for e in a.driver.find_elements(
+                'id', package + ':id/tabIcon') if e.is_displayed()], '语言切换后首页导航', 15)
+            tabs[-1].click()
+            a.wait(lambda: next((e for e in a.driver.find_elements('id', package + ':id/title')
+                                 if e.is_displayed() and e.text == 'Account'), None),
+                   'APP 已切换英文', 12)
+        tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
+        tabs[0].click()
+        a.wait(lambda: a.find('pair.add'), '语言校正后返回 Add Device 首页', 12)
 
     def select_model(self, label, retry=True):
         a = self.a
