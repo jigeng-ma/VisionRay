@@ -3,6 +3,7 @@ import threading
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from selenium.common.exceptions import StaleElementReferenceException
 from xml.sax.saxutils import quoteattr
 from studio.popups import PopupGuard, contains_device
 from studio.errors import TestBlocked
@@ -27,6 +28,22 @@ class HomeSettingTests(unittest.TestCase):
             page.home = Mock()
             page.setting('System Settings')
             entry.click.assert_called_once_with()
+
+    def test_dp_ai_entry_recovers_after_home_refresh(self):
+        a = Mock(context={'config': {'package': 'app'}, 'glasses_name': 'G3'})
+        stale = Mock()
+        stale.is_displayed.side_effect = StaleElementReferenceException()
+        entry = Mock(text='DP AI')
+        entry.is_displayed.return_value = True
+        a.driver.find_elements.side_effect = [[stale], [entry]]
+        a.popups.handle.return_value = False
+        a.wait = lambda action, label, timeout: Android.wait(a, action, label, timeout)
+        page = HomeDevicePage(a)
+        page.home = Mock()
+        with patch('studio.android.time.sleep'):
+            page.setting('DP AI')
+        self.assertEqual(a.driver.find_elements.call_count, 2)
+        entry.click.assert_called_once_with()
 
 
 class SkipConfirmationLocatorTests(unittest.TestCase):

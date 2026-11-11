@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from studio.firmware_ota import FirmwareUpdatePage, firmware_version, leave_failed_update
+from studio.firmware_ota import FirmwareUpdatePage, firmware_version, leave_failed_update, ensure_system_bluetooth_pairing
 from studio.firmware_ota import clear_target
 
 
@@ -47,6 +47,8 @@ def test_firmware_entry_clicks_whole_row_and_confirms_page_transition():
             return [row]
         if value.endswith(':id/uof_version'):
             return [Mock()] if screen['update'] else []
+        if by == 'xpath' and 'Firmware is up to date' in value:
+            return []
         if by == 'xpath':
             labels = ['Firmware Update'] if screen['update'] else ['Basic Information', 'Firmware Update']
             return [Mock(text=label, is_displayed=Mock(return_value=True)) for label in labels]
@@ -115,10 +117,41 @@ def test_ota_cleanup_still_unforces_when_offline_request_fails():
     client.return_value.set_force.assert_called_once_with(155, False, apply=True)
 
 
+def test_system_bluetooth_pairs_only_the_exact_selected_glasses():
+    android = Mock(context={'config': {'model': 'G7'}, 'phone': 'phone-1',
+                            'glasses_name': 'DPVR G7_C837'})
+    wrong = Mock(text='DPVR G7_C838')
+    wrong.is_displayed.return_value = True
+    target = Mock(text='DPVR G7_C837')
+    target.is_displayed.return_value = True
+    bonded = {'value': False}
+    target.click.side_effect = lambda: bonded.__setitem__('value', True)
+    def find_elements(_by, locator):
+        assert "DPVR G7_C837" in locator
+        return [target]
+
+    android.driver.find_elements.side_effect = find_elements
+    android.driver.page_source = '<hierarchy><node text="DPVR G7_C837"/></hierarchy>'
+
+    def shell(_phone, *args):
+        if args[:2] == ('dumpsys', 'bluetooth_manager'):
+            return ('Bonded devices:\n' + ('XX:XX:XX:XX:C8:37\n' if bonded['value'] else '')
+                    + 'Scan Mode Changes:')
+        return ''
+
+    with patch('studio.devices.Adb') as adb:
+        adb.return_value.shell.side_effect = shell
+        ensure_system_bluetooth_pairing(android)
+    target.click.assert_called_once_with()
+    wrong.click.assert_not_called()
+    android.ensure_foreground.assert_called_once_with()
+
+
 def test_forced_ota_clears_backend_and_restarts_after_popup_failure():
     from cases.g_series.test_firmware_ota import _startup_update
     android = Mock()
-    with patch('cases.g_series.test_firmware_ota.choose_target', return_value=('2.00.05', {'task_id': 155, 'version': '2.00.04'}, 'downgrade')), \
+    with patch('cases.g_series.test_firmware_ota.choose_target', return_value=('2.00.05', {'task_id': 155, 'version': '2.00.04', 'model': 'DPVR G1'}, 'downgrade')), \
+         patch('cases.g_series.test_firmware_ota.ensure_system_bluetooth_pairing'), \
          patch('cases.g_series.test_firmware_ota.prepare_target'), \
          patch('cases.g_series.test_firmware_ota.clear_target') as clear, \
          patch('cases.g_series.test_firmware_ota.FirmwareUpdatePage') as page:
@@ -132,7 +165,8 @@ def test_forced_ota_clears_backend_and_restarts_after_popup_failure():
 def test_forced_ota_clears_backend_even_when_setup_fails():
     from cases.g_series.test_firmware_ota import _startup_update
     android = Mock(context={'config': {'package': 'test.app'}})
-    with patch('cases.g_series.test_firmware_ota.choose_target', return_value=('2.00.05', {'task_id': 155}, 'downgrade')), \
+    with patch('cases.g_series.test_firmware_ota.choose_target', return_value=('2.00.05', {'task_id': 155, 'model': 'DPVR G1'}, 'downgrade')), \
+         patch('cases.g_series.test_firmware_ota.ensure_system_bluetooth_pairing'), \
          patch('cases.g_series.test_firmware_ota.prepare_target', side_effect=RuntimeError('setup failed')), \
          patch('cases.g_series.test_firmware_ota.clear_target') as clear, \
          patch('cases.g_series.test_firmware_ota.FirmwareUpdatePage'):

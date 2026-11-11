@@ -93,7 +93,7 @@ def test_g7_conversation_modes(android):
     G7Page(android).conversation_modes()
 
 
-def _video(android, width, height, fps, duration):
+def _video(android, width, height, fps, duration, save_on_failure=False):
     _bound_home(android)
     for attempt in range(2):
         page = G7Page(android)
@@ -112,7 +112,17 @@ def _video(android, width, height, fps, duration):
             android.driver = None
             android.connect()
             _bound_home(android)
-    page.record_and_check(duration, width, height, fps)
+    try:
+        page.record_and_check(duration, width, height, fps)
+    except Exception:
+        if save_on_failure:
+            try:
+                issue = page.save_failed_video()
+                if issue:
+                    android.log('g7-failed-video-unavailable', issue)
+            except Exception as copy_error:
+                android.log('g7-failed-video-unavailable', str(copy_error))
+        raise
 
 
 def test_g7_video_2k5_1min(android):
@@ -143,7 +153,7 @@ VIDEO_VARIANTS = (
 @pytest.mark.parametrize('width,height,fps,duration', VIDEO_VARIANTS,
                          ids=[f'Cam_{number:03d}' for number in range(11, 36)])
 def test_g7_video_variant(android, width, height, fps, duration):
-    _video(android, width, height, fps, duration)
+    _video(android, width, height, fps, duration, save_on_failure=True)
 
 
 def test_g7_all_video_combinations(android):

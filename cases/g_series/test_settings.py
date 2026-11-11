@@ -1,4 +1,5 @@
 import time
+import sys
 import pytest
 from studio.errors import TestBlocked, WaitTimeout
 from studio.ble_commands import BleMediaCommands
@@ -68,7 +69,7 @@ def test_photo_watermark_share(android):
 
 
 def test_video_watermark(android):
-    def action():
+    def check_watermark():
         page = SettingsPage(android); page.capture(); page.toggle_round_trip('video_watermark_switch'); page.on('video_watermark_switch')
         gallery = GalleryPage(android)
         before, videos = gallery.pending_count_or_zero('home'), gallery.gallery_media_count()['video']
@@ -104,6 +105,19 @@ def test_video_watermark(android):
                     gallery.preview_latest('video')
                     if stage == '播放后暂停帧':
                         gallery.play_pause()
+    def action():
+        try:
+            check_watermark()
+        finally:
+            original_error = sys.exc_info()[1]
+            try:
+                page = SettingsPage(android)
+                page.capture()
+                page.off('video_watermark_switch')
+            except Exception as error:
+                if original_error is None:
+                    raise
+                android.log('video-watermark-cleanup-failed', str(error))
     run(android, action)
 
 

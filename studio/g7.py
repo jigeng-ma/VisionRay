@@ -1,5 +1,6 @@
 """G7 专属的对话方式和录像规格验证。"""
 import json
+import os
 import re
 import shutil
 import sqlite3
@@ -194,6 +195,7 @@ class G7Page:
             gallery.import_from('home', timeout=max(300, duration + 180))
             before_home = gallery.pending_count_or_zero('home')
         before_media = self.video_rows()
+        self._video_before = before_media
         command = BleMediaCommands(self.a)
         command.start_video()
         try:
@@ -213,6 +215,7 @@ class G7Page:
         added = set(self.video_rows()) - set(before_media)
         assert len(added) == 1, f'本轮导入的新视频不唯一：{added}。'
         path = self.video_rows()[added.pop()]
+        self._recorded_video_path = path
         actual = self.metadata(path)
         actual['filename'] = Path(path).name
         self.a.log('g7-video-metadata', actual)
@@ -227,3 +230,35 @@ class G7Page:
             '视频分辨率错误；' + details)
         assert abs(actual['fps'] - fps) <= 1, '视频帧率错误；' + details
         return actual
+
+    def save_failed_video(self):
+        """失败时把本次导入的视频保存到当前用例的证据目录。"""
+        directory = os.environ.get('GLASSES_EVIDENCE_DIR')
+        if not directory:
+            return '未设置用例证据目录'
+        path = getattr(self, '_recorded_video_path', None)
+        if not path:
+            before = getattr(self, '_video_before', None)
+            if before is None:
+                return '尚未开始录像，无法确定本次视频'
+            added = set(self.video_rows()) - set(before)
+            if len(added) != 1:
+                return f'未唯一找到本次导入的视频（新增 {len(added)} 个）'
+            path = self.video_rows()[added.pop()]
+        target = Path(directory) / Path(path).name
+        if target.exists():
+            return f'证据目录已有同名文件，未覆盖原视频：{target.name}'
+        temporary = target.with_name(target.name + '.part')
+        try:
+            with temporary.open('wb') as output:
+                result = subprocess.run(
+                    [Adb().executable, '-s', self.a.context['phone'], 'exec-out',
+                     'run-as', self.package, 'cat', path],
+                    stdout=output, stderr=subprocess.PIPE, timeout=1200)
+            if result.returncode or not temporary.stat().st_size:
+                return ('复制视频失败：' + result.stderr.decode('utf-8', errors='replace').strip())[:500]
+            temporary.replace(target)
+            self.a.log('g7-failed-video-saved', {'file': target.name, 'bytes': target.stat().st_size})
+            return None
+        finally:
+            temporary.unlink(missing_ok=True)

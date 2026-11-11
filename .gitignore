@@ -1,5 +1,6 @@
 configs/workbench_state.json
 configs/ios.local.json
+configs/nova_wifi.ini
 .venv/
 .tools/
 .DS_Store

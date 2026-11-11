@@ -1,0 +1,190 @@
+[
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_014",
+    "automation_id": "VisionRay_0179",
+    "node": "cases/nova/test_nova.py::test_pair",
+    "models": [
+      "Nova"
+    ],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 240
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_015",
+    "automation_id": "VisionRay_0180",
+    "node": "cases/nova/test_nova.py::test_skip_guide",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_016",
+    "automation_id": "VisionRay_0181",
+    "node": "cases/nova/test_nova.py::test_wear_guide",
+    "models": [
+      "Nova"
+    ],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 120
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_017",
+    "automation_id": "VisionRay_0182",
+    "node": "cases/nova/test_nova.py::test_photo_guide",
+    "models": [
+      "Nova"
+    ],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 120
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_018",
+    "automation_id": "VisionRay_0183",
+    "node": "cases/nova/test_nova.py::test_video_guide",
+    "models": [
+      "Nova"
+    ],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 180
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_019",
+    "automation_id": "VisionRay_0195",
+    "node": "cases/nova/test_nova.py::test_audio_guide",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 240
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_020",
+    "automation_id": "VisionRay_0196",
+    "node": "cases/nova/test_nova.py::test_music_guide",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 300
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_029",
+    "automation_id": "VisionRay_0184",
+    "node": "cases/nova/test_nova.py::test_firmware_update",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 1500
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_022",
+    "automation_id": "VisionRay_0185",
+    "node": "cases/nova/test_nova.py::test_connected_home_card",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_033",
+    "automation_id": "VisionRay_0186",
+    "node": "cases/nova/test_nova.py::test_recorder_page",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_025",
+    "automation_id": "VisionRay_0187",
+    "node": "cases/nova/test_nova.py::test_wifi_connect",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 180
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_026",
+    "automation_id": "VisionRay_0188",
+    "node": "cases/nova/test_nova.py::test_wifi_switch",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 720
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_028",
+    "automation_id": "VisionRay_0189",
+    "node": "cases/nova/test_nova.py::test_rename_glasses",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 120
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_041",
+    "automation_id": "VisionRay_0190",
+    "node": "cases/nova/test_nova.py::test_video_stabilization_switch",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 120
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_084",
+    "automation_id": "VisionRay_0191",
+    "node": "cases/nova/test_nova.py::test_open_ai_chat",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 90
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_030",
+    "automation_id": "VisionRay_0192",
+    "node": "cases/nova/test_nova.py::test_unpair_glasses",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 300
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_034",
+    "automation_id": "VisionRay_0193",
+    "node": "cases/nova/test_nova.py::test_recorder_play_pause",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 120
+  },
+  {
+    "sheet": "Nova",
+    "id": "N_Smoke_035",
+    "automation_id": "VisionRay_0194",
+    "node": "cases/nova/test_nova.py::test_recorder_switch",
+    "models": ["Nova"],
+    "requires": [],
+    "glasses_adb_required": true,
+    "timeout_seconds": 180
+  }
+]

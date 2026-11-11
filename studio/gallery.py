@@ -285,6 +285,7 @@ class GalleryPage:
 
     def import_from(self, surface, timeout=300):
         """在指定入口导入，并返回导入前卡片显示的真实数量。"""
+        started = time.monotonic()
         before = self.pending_count_on(surface)
         statuses = self.all('status_title_tv')
         if statuses and any('importing' in e.text.lower() for e in statuses):
@@ -295,9 +296,28 @@ class GalleryPage:
             if not button.is_enabled():
                 raise TestBlocked('待导入媒资卡片存在，但导入按钮不可用。')
             button.click()
+            if self.a.context['config'].get('model') == 'Nova':
+                from .nova import accept_media_hotspot
+                accept_media_hotspot(self.a)
         if self.all('status_title_tv'):
+            # Some builds leave the card at "Found ... / Import" after a tap.
+            # Retry that idle button once; never tap while an import is active.
+            deadline = time.monotonic() + min(timeout, 45)
+            while self.all('status_title_tv') and time.monotonic() < deadline:
+                time.sleep(2)
+            idle = [e for e in self.all('status_action_btn')
+                    if e.is_enabled() and e.text.strip() == 'Import']
+            titles = [e.text.strip() for e in self.all('status_title_tv')]
+            if titles and idle and not any('importing' in title.lower() for title in titles):
+                self.a.capture('import-idle-retry')
+                self.a.log('import-retry', {'surface': surface, 'titles': titles})
+                idle[0].click()
+                if self.a.context['config'].get('model') == 'Nova':
+                    from .nova import accept_media_hotspot
+                    accept_media_hotspot(self.a)
             self.a.assert_wait(lambda: bool(self.all('status_title_tv')), False,
-                               '首页导入后待导入通知仍存在', timeout)
+                               '首页导入后待导入通知仍存在',
+                               max(1, timeout - (time.monotonic() - started)))
         else:
             self.a.assert_wait(lambda: bool(self.import_card()), False,
                                '空间页导入后待导入卡片仍存在', timeout)

@@ -152,7 +152,7 @@
   "products": {
     "Nova": {
       "models": {"Nova": {}},
-      "configured": false
+      "configured": true
     },
     "G系列": {
       "models": {

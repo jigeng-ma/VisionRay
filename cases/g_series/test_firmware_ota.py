@@ -3,7 +3,7 @@
 import pytest
 
 from studio.errors import TestBlocked, WaitTimeout
-from studio.firmware_ota import FirmwareUpdatePage, choose_target, prepare_target, clear_target
+from studio.firmware_ota import FirmwareUpdatePage, choose_target, prepare_target, clear_target, ensure_system_bluetooth_pairing
 
 
 def run(android, action, preserve_popup=False):
@@ -26,6 +26,7 @@ def _restart_app(android):
 def _manual_update(android, firmware):
     FirmwareUpdatePage(android).dismiss_stale_startup_popup()
     before, target, direction = choose_target(android, firmware)
+    ensure_system_bluetooth_pairing(android)
     try:
         prepare_target(target["task_id"], mandatory=False, model=target['model'])
         page = FirmwareUpdatePage(android)
@@ -39,6 +40,7 @@ def _manual_update(android, firmware):
 def _startup_update(android, firmware, mandatory):
     FirmwareUpdatePage(android).dismiss_stale_startup_popup()
     before, target, direction = choose_target(android, firmware)
+    ensure_system_bluetooth_pairing(android)
     try:
         prepare_target(target["task_id"], mandatory=mandatory, model=target['model'])
         if not mandatory:
@@ -53,6 +55,9 @@ def _startup_update(android, firmware, mandatory):
             except WaitTimeout:
                 if not FirmwareUpdatePage(android).has_startup_popup():
                     raise
+            if not FirmwareUpdatePage(android).has_startup_popup():
+                # Reinstalling the APP can remove its system Bluetooth bond.
+                ensure_system_bluetooth_pairing(android)
         if not FirmwareUpdatePage(android).has_startup_popup():
             _restart_app(android)
         page = FirmwareUpdatePage(android)

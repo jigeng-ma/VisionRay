@@ -44,6 +44,23 @@ class PopupGuard:
                 return True
         raise TestBlocked('已识别 VisionRay 系统权限弹窗，但未找到允许按钮。')
 
+    def _accept_nova_hotspot(self, texts, packages):
+        """Nova 导入媒资时，确认 Android 的临时眼镜热点连接请求。"""
+        if self.android.context['config'].get('model') != 'Nova':
+            return False
+        if ('com.android.settings' not in packages
+                or 'Connect to device' not in texts
+                or not any('VisionRay app wants to use a temporary Wi' in text for text in texts)):
+            return False
+        buttons = [e for e in self.android.driver.find_elements('id', 'android:id/button1')
+                   if e.is_displayed() and e.is_enabled() and e.text == 'Connect']
+        if len(buttons) != 1:
+            raise TestBlocked('已识别 Nova 眼镜热点连接请求，但 Connect 按钮不唯一或缺失。')
+        self.android.capture('popup-nova-hotspot')
+        buttons[0].click()
+        self.android.log('popup', 'nova_hotspot_connect')
+        return True
+
     def _accept_first_launch(self, nodes, texts, packages):
         """非首次启动验证用例遇到隐私协议时，完成必要同意并继续执行。"""
         package = self.android.context['config']['package']
@@ -71,6 +88,8 @@ class PopupGuard:
         texts = [n.get('text', '') for n in nodes if n.get('text')]
         packages = {n.get('package') for n in nodes}
         if self._accept_first_launch(nodes, texts, packages):
+            return True
+        if self._accept_nova_hotspot(texts, packages):
             return True
         if self._allow_system_permission(texts, packages):
             return True

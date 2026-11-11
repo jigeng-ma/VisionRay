@@ -1,4 +1,4 @@
-"""G1/G3/G6 固件 OTA 的前置处理、页面操作和版本校验。"""
+"""G 系列固件 OTA 的前置处理、页面操作和版本校验。"""
 
 from __future__ import annotations
 
@@ -83,6 +83,104 @@ def choose_target(android, firmware: str) -> tuple[str, dict, str]:
     android.log("firmware-target", {"current": current, "target": target["version"], "task_id": target["task_id"],
                                     "direction": direction, "firmware": firmware})
     return current, target, direction
+
+
+def ensure_system_bluetooth_pairing(android) -> None:
+    """Pair the exact G-series glasses in Android Bluetooth settings before OTA."""
+    model = android.context['config'].get('model')
+    if model not in ('G1', 'G3', 'G5', 'G6', 'G7'):
+        return
+    from .devices import Adb
+    adb = Adb()
+    phone = android.context['phone']
+    name = android.context['glasses_name']
+    if not name:
+        raise AssertionError('固件 OTA 缺少目标眼镜蓝牙完整名称。')
+    if "'" in name:
+        raise AssertionError('目标眼镜蓝牙名称含有无法用于精确定位的引号。')
+
+    def visible_target():
+        from selenium.common.exceptions import StaleElementReferenceException
+        locator = f"//*[@text='{name}' or @content-desc='{name}']"
+        try:
+            matches = [e for e in android.driver.find_elements('xpath', locator) if e.is_displayed()]
+        except StaleElementReferenceException:
+            return None  # Bluetooth list refreshed during this read.
+        if len(matches) > 1:
+            raise AssertionError(f'系统蓝牙设置中目标眼镜 {name} 匹配不唯一。')
+        return matches[0] if matches else None
+
+    def paired():
+        output = adb.shell(phone, 'dumpsys', 'bluetooth_manager')
+        if 'Bonded devices:' not in output:
+            return False
+        devices = output.split('Bonded devices:', 1)[1].split('Scan Mode Changes:', 1)[0].lower()
+        suffix = re.search(r'([0-9a-f]{4})$', name, re.I)
+        tail = suffix.group(1).lower() if suffix else ''
+        return name.lower() in devices or bool(tail and f'{tail[:2]}:{tail[2:]}' in devices)
+
+    def shown_disconnected():
+        root = ET.fromstring(android.driver.page_source)
+        parents = {child: parent for parent in root.iter() for child in parent}
+        for node in root.iter():
+            if node.get('text', '').strip() != name:
+                continue
+            row = parents.get(parents.get(node)) or parents.get(node)
+            if row is None:
+                return False
+            labels = ' '.join(item.get('text', '') for item in row.iter()).lower()
+            return ('not connected' in labels or 'disconnected' in labels
+                    or '未连接' in labels or '已断开' in labels)
+        return False
+
+    if adb.shell(phone, 'settings', 'get', 'global', 'bluetooth_on').strip() == '0':
+        adb.shell(phone, 'cmd', 'bluetooth_manager', 'enable')
+    adb.shell(phone, 'input', 'keyevent', '224')
+    adb.shell(phone, 'wm', 'dismiss-keyguard')
+    adb.shell(phone, 'am', 'start', '-a', 'android.settings.BLUETOOTH_SETTINGS')
+    android.log('system-bluetooth', {'target': name, 'phase': 'opened-settings'})
+    try:
+        target = None
+        for attempt in range(3):
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                target = visible_target()
+                if target:
+                    break
+                time.sleep(1)
+            if target:
+                break
+            refresh = [e for e in android.driver.find_elements('xpath',
+                       "//*[@content-desc='Scan for devices' or @text='Scan' or @text='扫描设备' or @text='扫描']")
+                       if e.is_displayed() and e.is_enabled()]
+            if len(refresh) == 1:
+                refresh[0].click()
+            elif len(refresh) > 1:
+                refresh[0].click()  # Nested scan icon and touch target have the same action.
+            size = android.driver.get_window_size()
+            android.driver.swipe(size['width'] // 2, int(size['height'] * .75),
+                                 size['width'] // 2, int(size['height'] * .35), 400)
+        if not target:
+            android.capture('system-bluetooth-target-not-found')
+            raise AssertionError(f'手机蓝牙周围设备连续扫描未找到 {name}；请确认眼镜可被系统蓝牙发现。')
+        if paired() and not shown_disconnected():
+            android.log('system-bluetooth', {'target': name, 'phase': 'already-paired'})
+            return
+        if not target.is_enabled():
+            raise AssertionError(f'手机蓝牙列表显示 {name}，但该设备当前不可点击。')
+        android.capture('system-bluetooth-target-found')
+        target.click()
+        deadline = time.monotonic() + 35
+        while time.monotonic() < deadline:
+            android.popups.handle()
+            if paired() and not shown_disconnected():
+                android.log('system-bluetooth', {'target': name, 'phase': 'paired'})
+                return
+            time.sleep(1)
+        android.capture('system-bluetooth-pairing-failed')
+        raise AssertionError(f'已在手机蓝牙设置中点击 {name}，但 35 秒内未确认系统配对成功。')
+    finally:
+        android.ensure_foreground()
 
 
 def prepare_target(task_id: int, mandatory: bool, model: str = 'DPVR G1') -> None:

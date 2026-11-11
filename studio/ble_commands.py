@@ -182,6 +182,16 @@ class BleMediaCommands:
         choices = [(self._seconds(e.text), e) for e in options]
         choices = [(seconds, e) for seconds, e in choices if duration <= seconds <= maximum]
         if not choices:
+            if kind == 'video' and self.a.context['config'].get('model') == 'G7':
+                # G7 restricts duration by video specification. The current
+                # specification can expose only 15S/30S even though 1080p60
+                # offers longer durations.
+                self.a.driver.press_keycode(4)
+                from .g7 import G7Page
+                G7Page(self.a).set_video(1920, 1080, 60, duration)
+                self.a.log('ble-duration', {'kind': kind, 'limit_seconds': duration,
+                                            'changed': True, 'specification': '1080p60'})
+                return
             raise TestBlocked(f'当前 APP 没有满足 {duration} 秒的{label}选项。')
         seconds, option = min(choices, key=lambda item: item[0])
         option.click()

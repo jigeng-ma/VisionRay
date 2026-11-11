@@ -1,6 +1,7 @@
 {
   "common": "common/registry.json",
   "products": {
+    "Nova": "nova/registry.json",
     "G系列": "g_series/registry.json",
     "G7": "g_series/registry.json"
   }

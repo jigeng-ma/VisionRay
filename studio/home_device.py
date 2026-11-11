@@ -95,31 +95,29 @@ class HomeDevicePage:
                     'xpath', f"//*[@package='{self.package}' and @text='{error}']")):
                 raise TestBlocked(f'APP 显示目标眼镜 {self.name} 连接失败，Retry 后再次出现失败提示。')
 
-    def _labeled(self, resource, label):
-        found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource) if e.is_displayed() and e.text == label]
-        if len(found) != 1:
-            raise AssertionError(f'未唯一找到 {label}（{resource}）：{len(found)} 项。')
-        return found[0]
+    def _click_labeled(self, resource, labels):
+        labels = (labels,) if isinstance(labels, str) else labels
+        def click():
+            found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)
+                     if e.is_displayed() and e.text in labels]
+            if len(found) > 1:
+                raise AssertionError(f'入口不唯一：{labels}（{resource}），找到 {len(found)} 项。')
+            if not found:
+                return False
+            found[0].click()
+            return True
+        self.a.wait(click, f'点击入口 {labels[0]}', 12)
 
     def card(self, label):
-        self.home(); self._labeled('tv_grid_title', label).click(); self.a.log('click-card', label)
+        self.home(); self._click_labeled('tv_grid_title', label); self.a.log('click-card', label)
 
     def setting(self, label, require_target=True):
         self.home(require_target=require_target)
         # 不同 APP 版本首页显示 System 或 System Settings，详情页仍叫 System Settings。
         if label == 'System Settings':
-            def click_system():
-                items = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_list_title')
-                         if e.is_displayed() and e.text in ('System', 'System Settings')]
-                if len(items) > 1:
-                    raise AssertionError(f'系统设置入口不唯一：{len(items)} 项。')
-                if not items:
-                    return False
-                items[0].click()
-                return True
-            self.a.wait(click_system, '系统设置入口', 12)
+            self._click_labeled('tv_list_title', ('System', 'System Settings'))
         else:
-            self._labeled('tv_list_title', label).click()
+            self._click_labeled('tv_list_title', label)
         self.a.log('click-setting', label)
 
     def assert_page(self, title, marker):

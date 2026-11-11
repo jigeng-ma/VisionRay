@@ -76,6 +76,12 @@ class SettingsPage:
             control.click()
         self.a.assert_wait(lambda: self.switch_state(resource), True, resource + ' 开关状态', 8)
 
+    def off(self, resource):
+        control = self.one(resource)
+        if self.is_on(control):
+            control.click()
+        self.a.assert_wait(lambda: self.switch_state(resource), False, resource + ' 开关状态', 8)
+
     def switch_state(self, resource):
         found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)
                  if e.is_displayed()]

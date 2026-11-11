@@ -1,5 +1,7 @@
 import unittest
+import tempfile
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from studio.g7 import G7Page
 from studio.runner import registry, case_applies
@@ -25,6 +27,34 @@ class G7RegistrationTests(unittest.TestCase):
         self.assertEqual(G7Page.seconds('30 sec'), 30)
         self.assertEqual(G7Page.seconds('1Min'), 60)
         self.assertEqual(G7Page.seconds('12分钟'), 720)
+
+    def test_failed_variant_copies_only_recorded_video_to_case_evidence(self):
+        page = object.__new__(G7Page)
+        page.a = Mock(context={'phone': 'phone-1'})
+        page.package = 'app.package'
+        page._recorded_video_path = '/data/user/0/app.package/files/clip.mp4'
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict('os.environ', {'GLASSES_EVIDENCE_DIR': directory}), \
+             patch('studio.g7.Adb') as adb, \
+             patch('studio.g7.subprocess.run') as run:
+            adb.return_value.executable = 'adb'
+            def copy_video(command, *, stdout, **kwargs):
+                stdout.write(b'video bytes')
+                return Mock(returncode=0, stderr=b'')
+            run.side_effect = copy_video
+            self.assertIsNone(page.save_failed_video())
+            self.assertEqual((Path(directory) / 'clip.mp4').read_bytes(), b'video bytes')
+            run.assert_called_once()
+
+    def test_failed_variant_without_new_video_reports_reason(self):
+        page = object.__new__(G7Page)
+        page.a = Mock()
+        page._video_before = {1: 'old.mp4'}
+        page.video_rows = Mock(return_value={1: 'old.mp4'})
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.dict('os.environ', {'GLASSES_EVIDENCE_DIR': directory}):
+            self.assertIn('新增 0 个', page.save_failed_video())
+            self.assertEqual(list(Path(directory).iterdir()), [])
 
 
 if __name__ == '__main__':
