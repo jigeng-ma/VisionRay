@@ -216,8 +216,12 @@ class AuthPage:
                 self.settle()
                 continue
             if self.has('tv_login_by_email'):
-                self.click('tv_skip')
-                self.a.wait(lambda: self.has('tabIcon'), 'Skip 后主页面', 15)
+                if self.has('tv_skip'):
+                    self.click('tv_skip')
+                    self.a.wait(lambda: self.has('tabIcon'), 'Skip 后主页面', 15)
+                else:
+                    self.login_for_pairing()
+                    continue
             tabs = self.all('tabIcon')
             if tabs:
                 tabs[-1].click()
@@ -263,19 +267,40 @@ class AuthPage:
 
     def login_result(self, password=None):
         """探测服务端账号状态，不把未注册或密码错误误记为导航超时。"""
-        password = self.password if password is None else password
         self.login_page()
+        return self._submit_login(password)
+
+    def _submit_login(self, password=None, *, allow_models=False):
+        password = self.password if password is None else password
         self.fill('et_email', self.email)
         self.fill('et_pwd', password)
         self.click('tv_login_btn')
         def result():
-            if self.has('tabIcon'):
+            if self.has('tabIcon') or (allow_models and self.a.find('pair.models_title')):
                 return 'logged_in'
+            if allow_models:
+                from .pairing import discovery_panel
+                if discovery_panel(self.a) is not None:
+                    return 'logged_in'
             titles = self.all('tv_title')
             if titles and titles[0].text in ('Not registered', 'Login Failed'):
                 return {'Not registered': 'unregistered', 'Login Failed': 'wrong_password'}[titles[0].text]
             return None
         return self.a.wait(result, '登录成功或明确账号状态', 25)
+
+    def login_for_pairing(self):
+        """Add Device 已打开登录入口，兼容包含 Skip 的旧页面。"""
+        if self.has('tv_skip'):
+            self.registered()
+            return
+        self.click('tv_login_by_email')
+        self.text('Log in Your Account')
+        self.hide_keyboard()
+        result = self._submit_login(allow_models=True)
+        self.a.log('auth-precondition', {'required': 'registered', 'observed': result})
+        if result != 'logged_in':
+            reason = {'unregistered': '测试账号尚未注册', 'wrong_password': '测试账号登录失败'}.get(result, result)
+            raise TestBlocked(f'配对前置登录未完成：{reason}。')
 
     def login(self, password=None):
         password = self.password if password is None else password

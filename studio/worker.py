@@ -21,7 +21,10 @@ def failure_detail(report):
     if report['when'] == 'call':
         match = re.search(r'^E\s+AssertionError:\s*(.+)$', detail, re.MULTILINE)
         if match:
-            return match.group(1).strip()
+            detail = match.group(1).strip()
+        case_detail = report.get('properties', {}).get('studio_detail')
+        if case_detail:
+            detail = f'{detail} {case_detail}' if detail else case_detail
     return detail
 
 

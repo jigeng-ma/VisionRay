@@ -44,4 +44,6 @@ def resolve_device(root, product, model, name):
     config = resolve(root, product, model)
     if product == 'G7' and not re.fullmatch(config['name_pattern'], name.strip(), re.IGNORECASE):
         raise ValueError('G7 蓝牙名称应为完整的 DPVR G7_XXXX，例如 DPVR G7_3EB4。')
+    if product == 'G5' and not re.fullmatch(config['name_pattern'], name.strip(), re.IGNORECASE):
+        raise ValueError('G5 蓝牙名称应为完整名称，例如 DPVR G5-0791。')
     return config

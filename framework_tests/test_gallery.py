@@ -53,8 +53,23 @@ def test_cam003_reports_missing_watermark_after_processing_window():
          patch('cases.g_series.test_settings.BleMediaCommands'), \
          patch('cases.g_series.test_settings.time.monotonic', side_effect=[0, 181]), \
          patch('cases.g_series.test_settings.time.sleep'):
-        with pytest.raises(AssertionError, match='视频已导入，但详情封面在 180 秒内仍未识别到 VisionRay 水印'):
-            test_video_watermark(android)
+        with pytest.raises(AssertionError, match='视频已导入，但播放后暂停帧在导入成功后 120 秒内仍未识别到 VisionRay 水印'):
+            test_video_watermark(android, Mock())
+
+
+def test_video_watermark_records_ten_second_capture_and_shared_import_timer():
+    from cases.g_series.test_settings import test_video_watermark
+    android, gallery, record = Mock(unsafe=True), Mock(spec=GalleryPage), Mock()
+    gallery.pending_count_or_zero.return_value = 0
+    gallery.gallery_media_count.return_value = {'video': 1}
+    with patch('cases.g_series.test_settings.SettingsPage'), \
+         patch('cases.g_series.test_settings.GalleryPage', return_value=gallery), \
+         patch('cases.g_series.test_settings.BleMediaCommands') as commands, \
+         patch('cases.g_series.test_settings.time.monotonic', side_effect=[100, 109]):
+        test_video_watermark(android, record)
+    commands.return_value.record_video.assert_called_once_with(duration=10)
+    detail = record.call_args.args[1]
+    assert '播放后暂停帧水印首次检出耗时 9.00 秒' in detail
 
 
 def test_missing_import_notice_after_preparation_is_failure():

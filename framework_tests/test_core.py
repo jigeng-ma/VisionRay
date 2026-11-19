@@ -67,6 +67,16 @@ class CoreTests(unittest.TestCase):
         adb.touch()
         self.assertEqual(android_sdk(self.root), str(adb.parent.parent.resolve()))
 
+    def test_export_includes_ota_downgrade_warning_in_passed_result(self):
+        fixture(self.file, {'模块': self.rows})
+        detail = '降级已达到目标。备注：APP 提示失败，后台任务配置是否异常待人工核对。'
+        target = self.root / 'ota-result.xlsx'
+        export(self.file, target, Mapping(), [
+            {'sheet': '模块', 'id': self.rows[1]['A'], 'status': 'PASS', 'detail': detail}])
+        with ZipFile(target) as z:
+            xml = z.read('xl/worksheets/sheet1.xml').decode()
+            self.assertIn('Passed\n' + detail, xml)
+
     def test_export_matches_ids_preserves_source_and_clears_unselected(self):
         fixture(self.file, {'模块': self.rows + [{'A': '002', 'F': '另一条', 'M': 'Failed'}], '未选': self.rows})
         original = self.file.read_bytes()

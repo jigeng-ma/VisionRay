@@ -24,8 +24,21 @@ class ReinstallPreparationTests(unittest.TestCase):
     def test_bound_device_is_unbound_before_reinstall(self, start, android_cls, page_cls):
         android = self.prepare({'pair.home_title': True})
         android_cls.return_value.connect.return_value = android
+        page_cls.return_value.unbind.return_value = False
         unbind_before_reinstall('.', self.context, self.adb, lambda *event: self.events.append(event))
-        page_cls.return_value.unbind.assert_called_once_with()
+        page_cls.return_value.unbind.assert_called_once_with(require_empty=False)
+        android.close.assert_called_once_with()
+
+    @patch('studio.home_device.HomeDevicePage')
+    @patch('studio.android.Android')
+    @patch('studio.service.start')
+    def test_remaining_device_is_also_unbound(self, start, android_cls, page_cls):
+        android = self.prepare({'pair.home_title': True})
+        android_cls.return_value.connect.return_value = android
+        page_cls.return_value.unbind.side_effect = [True, False]
+        unbind_before_reinstall('.', self.context, self.adb, lambda *event: self.events.append(event))
+        self.assertEqual(page_cls.return_value.unbind.call_count, 2)
+        self.assertIn(('service', '已解绑一台眼镜，继续解绑其余设备。'), self.events)
         android.close.assert_called_once_with()
 
     @patch('studio.home_device.HomeDevicePage')

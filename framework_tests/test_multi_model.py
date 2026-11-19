@@ -21,11 +21,38 @@ class MultiModelTests(unittest.TestCase):
         for model in ('G7', 'G5'):
             config = resolve_device(ROOT, model, model, f'DPVR {model}_1234')
             self.assertEqual((config['product'], config['model']), (model, model))
-            self.assertEqual(config['configured'], model == 'G7')
+            self.assertTrue(config['configured'])
+
+    def test_g5_pairing_resolves_both_workbook_rows(self):
+        config = resolve_device(ROOT, 'G5', 'G5', 'DPVR G5-0791')
+        self.assertEqual(config['pairing']['model_label'], 'Flow Echo Pilot')
+        self.assertTrue(config['capabilities']['pairing'])
+        entries = registry(ROOT, 'G5')
+        for case_id, automation_id, variant in (
+            ('PAIR_001', 'VisionRay_0197', 'pilot'),
+            ('PAIR_002', 'VisionRay_0198', 'crystal'),
+        ):
+            item = entries['G5', case_id]
+            self.assertTrue(case_applies(item, config))
+            self.assertEqual(item['automation_id'], automation_id)
+            self.assertTrue(item['node'].endswith(f'::test_pair_flow_echo_{variant}'))
+        with self.assertRaisesRegex(ValueError, 'G5 蓝牙名称'):
+            resolve_device(ROOT, 'G5', 'G5', 'DPVR G7_1234')
 
     def test_g7_rejects_another_model_name(self):
         with self.assertRaisesRegex(ValueError, 'G7 蓝牙名称'):
             resolve_device(ROOT, 'G7', 'G7', 'DPVR G1_7BAF')
+
+    def test_g5_reuses_source_script_with_its_own_workbook_case_id(self):
+        g5 = registry(ROOT, 'G5')
+        source = registry(ROOT, 'G系列')['G1_G3_G6', 'Cam_001']
+        reused = g5['G5', 'Cam_004']
+        for field in ('node', 'automation_id', 'requires', 'timeout_seconds', 'glasses_adb_required'):
+            self.assertEqual(reused.get(field), source.get(field))
+        self.assertTrue(case_applies(reused, {'product': 'G5', 'model': 'G5'}))
+        self.assertFalse(case_applies(reused, {'product': 'G系列', 'model': 'G1'}))
+        self.assertNotEqual(g5['G5', 'Cam_001']['node'], reused['node'])
+        self.assertTrue(g5['G5', 'F-OTA_002']['node'].endswith('test_g5_ota[isp-manual]'))
 
     def test_g7_temporarily_reuses_shared_g_series_cases(self):
         for product in ('Nova', 'G5'):

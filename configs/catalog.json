@@ -185,8 +185,10 @@
       "name_pattern": "DPVR\\s+G7_[^\\s]+"
     },
     "G5": {
-      "models": {"G5": {}},
-      "configured": false
+      "models": {"G5": {"pairing": {"model_label": "Flow Echo Pilot"}}},
+      "configured": true,
+      "capabilities": {"pairing": true},
+      "name_pattern": "DPVR\\s+G5[-_][^\\s]+"
     }
   }
 }

@@ -8,6 +8,19 @@ from cases.g_series.test_auth import run_case
 
 
 class AuthSafetyTests(unittest.TestCase):
+    def test_pairing_login_skips_guest_navigation_when_skip_is_absent(self):
+        page = self.page()
+        page.has = Mock(return_value=False)
+        page.click = Mock()
+        page.text = Mock()
+        page.hide_keyboard = Mock()
+        page.registered = Mock()
+        page._submit_login = Mock(return_value='logged_in')
+        page.login_for_pairing()
+        page.click.assert_called_once_with('tv_login_by_email')
+        page._submit_login.assert_called_once_with(allow_models=True)
+        page.registered.assert_not_called()
+
     def test_cl055_reports_wrong_destination_as_assertion_failure(self):
         page = Mock(unsafe=True)
         page.el.side_effect = lambda key: Mock(text='Create Account' if key == 'tv_confirm' else 'Cancel')

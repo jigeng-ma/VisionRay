@@ -33,7 +33,7 @@ def save_json(path, data):
 
 
 def unbind_before_reinstall(root, context, adb, emit):
-    """卸载现有 APP 前尽量解除当前眼镜绑定。"""
+    """卸载现有 APP 前逐台解除已绑定的眼镜。"""
     package = context['config']['package']
     installed = adb.shell(context['phone'], 'pm', 'list', 'packages', package)
     if f'package:{package}' not in installed.splitlines():
@@ -55,7 +55,9 @@ def unbind_before_reinstall(root, context, adb, emit):
                 return
             if android.find('pair.home_title') or android.find('pair.tutorial_begin'):
                 binding_confirmed = True
-                page.unbind()
+                if page.unbind(require_empty=False):
+                    emit('service', '已解绑一台眼镜，继续解绑其余设备。')
+                    continue
                 emit('service', '已解绑眼镜，继续安装。')
                 return
             source = android.driver.page_source
@@ -65,6 +67,8 @@ def unbind_before_reinstall(root, context, adb, emit):
                 return
             android.driver.press_keycode(4)
             time.sleep(.4)
+        if binding_confirmed:
+            raise RuntimeError('卸载前未能确认所有眼镜已解绑，请检查设备管理。')
         emit('service', '卸载前无法确认眼镜绑定状态，继续卸载安装。')
     except Exception as exc:
         if binding_confirmed:
@@ -104,6 +108,37 @@ def write_report(folder, run_id, context, records, entries):
     render_report(folder, run_id, context, records, entries)
 
 
+def read_registry(cases, relative):
+    path = (cases / relative).resolve()
+    if not path.is_relative_to(cases) or not path.is_file():
+        raise ValueError('产品注册表路径无效：' + relative)
+    return json.loads(path.read_text(encoding='utf-8')), path.parent
+
+
+def reused_entries(cases, manifest, product):
+    relative = manifest.get('reuse', {}).get(product)
+    if not relative:
+        return [], cases
+    mapping, _ = read_registry(cases, relative)
+    source = mapping['source_product']
+    data, directory = read_registry(cases, manifest['products'][source])
+    by_id = collections.defaultdict(list)
+    for entry in data:
+        by_id[entry.get('automation_id')].append(entry)
+    reused = []
+    for case_id, automation_id in mapping['cases'].items():
+        matches = by_id[automation_id]
+        if len(matches) != 1:
+            raise ValueError(f'{source} 未唯一注册可复用自动化编号：{automation_id}')
+        entry = matches[0]
+        if entry.get('models') or entry.get('products'):
+            raise ValueError(f'有限定型号或产品的用例需单独适配：{automation_id}')
+        item = dict(entry, sheet=mapping['sheet'], id=case_id)
+        item.pop('execution_order', None)
+        reused.append(item)
+    return reused, directory
+
+
 def registry(root, product=None):
     cases = (Path(root) / 'cases').resolve()
     manifest = json.loads((cases / 'registry.json').read_text(encoding='utf-8'))
@@ -116,10 +151,10 @@ def registry(root, product=None):
             paths.append((manifest['products'][product], product))
         groups = []
         for relative, owner in paths:
-            path = (cases / relative).resolve()
-            if not path.is_relative_to(cases) or not path.is_file():
-                raise ValueError('产品注册表路径无效：' + relative)
-            groups.append((json.loads(path.read_text(encoding='utf-8')), path.parent, owner))
+            data, directory = read_registry(cases, relative)
+            groups.append((data, directory, owner))
+        reused, directory = reused_entries(cases, manifest, product)
+        groups.append((reused, directory, product))
     found = {}
     for data, directory, owner in groups:
         for entry in data:
@@ -158,6 +193,29 @@ def registry(root, product=None):
                 alias['models'] = [model for model in item['models'] if model in ('G1', 'G3', 'G6')]
             found[(target_sheet, case_id)] = alias
     return found
+
+
+def runnable_modules(modules, entries):
+    """G5 全量表只执行已回填且可唯一定位到注册表的用例。"""
+    sheet = 'G5_全量'
+    if sheet not in modules or not any(name == sheet for name, _ in entries):
+        return modules
+    source = modules[sheet]
+    counts = collections.Counter(case['id'] for case in source['cases'])
+    cases, warnings = [], []
+    for case in source['cases']:
+        item = entries.get((sheet, case['id']))
+        if not item or not case['automation_id']:
+            continue
+        if counts[case['id']] != 1:
+            warnings.append(f'已登记用例编号重复：{case["id"]}（第 {case["row"]} 行）')
+        elif case['automation_id'] != item['automation_id']:
+            warnings.append(f'自动化编号与注册表不符：{case["id"]}（第 {case["row"]} 行）')
+        else:
+            cases.append(case)
+    return dict(modules, **{sheet: dict(source, cases=cases, warnings=warnings,
+                                      source_warnings=source['warnings'],
+                                      reason='' if cases else '暂无已回填且与注册表匹配的用例。')})
 
 
 class RunLock:
@@ -221,7 +279,11 @@ def execute_many(root, source, mapping, selected, contexts, stop, emit, timeout=
     batch_folder.mkdir(parents=True)
     modules = inspect(source, mapping)
     runs = sheet_runs(selected, contexts, sheet_targets)
-    total = sum(len(modules[sheet]['cases']) for sheet in selected) * (len(contexts) if sheet_targets is None else 1)
+    total = sum(len(modules[sheet]['cases']) for _, sheets in runs for sheet in sheets)
+    if 'G5_全量' in selected:
+        total = sum(len(runnable_modules(modules, registry(root, ctx['config']['product']))[sheet]['cases'])
+                    if sheet == 'G5_全量' else len(modules[sheet]['cases'])
+                    for ctx, sheets in runs for sheet in sheets)
     results = []
     case_results = []
     summary = collections.defaultdict(collections.Counter)
@@ -245,8 +307,9 @@ def execute_many(root, source, mapping, selected, contexts, stop, emit, timeout=
                     emit(kind, value)
             try:
                 entries = registry(root, context['config']['product'])
+                runnable = runnable_modules(modules, entries)
                 applicable = any((item := entries.get((sheet, case['id']))) and case_applies(item, context['config'])
-                                 for sheet in run_sheets for case in modules[sheet]['cases'])
+                                 for sheet in run_sheets for case in runnable[sheet]['cases'])
                 if not applicable:
                     row = {'model': model, 'glasses_name': context['glasses_name'],
                            'status': 'NOT_IMPLEMENTED', 'folder': '',
@@ -331,10 +394,11 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
     # UI 用 set 保存勾选状态；执行时必须恢复 Excel Sheet 的原始排列，
     # 不能把 set 的无序遍历结果当成模块执行顺序。
     selected = [name for name in modules if name in selected]
+    entries = registry(root, context['config'].get('product'))
+    modules = runnable_modules(modules, entries)
     for name in selected:
         if not modules[name]['cases'] or modules[name]['warnings']:
             raise ValueError(f'模块「{name}」为空或存在缺失编号，请先修正。')
-    entries = registry(root, context['config'].get('product'))
     adb = Adb()
     from .pgyer import OVERSEAS_DOWNLOAD_PAGE, download, install, resolve_build
     requested_version = context.get('app_version', '')

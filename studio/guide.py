@@ -1,5 +1,7 @@
 """使用引导及通用解绑流程。"""
 import time
+import re
+from .errors import WaitTimeout
 from .pairing import PairingPage
 from .home_device import HomeDevicePage
 
@@ -17,6 +19,9 @@ class GuidePage:
             # PairingPage.prepare_search 会按当前状态解绑；这里先调用 unbind
             # 会在已解绑时经 home() 额外绑定一次，再立即解绑。
             self.pairing.options['skip_tutorial'] = False
+            # 本条验证引导；附近卡片配对由 PAIR 专项覆盖。
+            # 通过明确型号与完整蓝牙名称建立引导前置。
+            self.pairing.require_model_list = True
             self.pairing.run()
         if not self.pairing.on_tutorial():
             raise AssertionError('重新绑定后未进入带 Begin 按钮的使用引导入口页。')
@@ -38,14 +43,42 @@ class GuidePage:
             a.wait(lambda: not a.find('pair.tutorial_begin') and a.find('pair.skip'), '进入引导第一页', 12)
         done = lambda: next((e for e in a.driver.find_elements('xpath',
             "//*[@package='%s' and @text='Done']" % a.context['config']['package']) if e.is_displayed()), None)
-        for _ in range(20):
+        def page_number():
+            labels = a.driver.find_elements('id', a.context['config']['package'] + ':id/tvPageCount')
+            values = [re.fullmatch(r'\s*(\d+)\s*/\s*(\d+)\s*', label.text)
+                      for label in labels if label.is_displayed()]
+            matches = [match for match in values if match]
+            if len(matches) == 1:
+                return tuple(map(int, matches[0].groups()))
+            return None
+
+        for _ in range(60):
             if done():
                 break
+            before = page_number()
+            if before and before[0] == before[1]:
+                a.wait(done, '引导最后一页显示 Done', 12)
+                break
             size = a.driver.get_window_size()
-            # ViewPager 不响应 UiAutomator2 的 swipeGesture；使用真实触点滑动。
-            a.driver.swipe(int(size['width'] * .85), int(size['height'] * .50),
-                           int(size['width'] * .12), int(size['height'] * .50), 500)
-            time.sleep(.5)
+            for attempt in range(3):
+                a.driver.swipe(int(size['width'] * .85), int(size['height'] * .72),
+                               int(size['width'] * .12), int(size['height'] * .72), 500)
+                try:
+                    def advanced():
+                        if done():
+                            return True
+                        after = page_number()
+                        return after if before and after and after[0] > before[0] else None
+                    if before:
+                        after = a.wait(advanced, f'引导从第 {before[0]} 页前进', 5)
+                        a.log('guide-page-advanced', {'before': before, 'after': after})
+                    else:
+                        time.sleep(1)
+                    break
+                except WaitTimeout:
+                    if attempt == 2:
+                        a.capture('guide-page-stuck')
+                        raise AssertionError(f'引导页 {before} 连续三次滑动后页码未前进。') from None
         button = done()
         if not button:
             a.capture('guide-done-not-found')

@@ -23,6 +23,13 @@ def prepare_three_pending_media(page):
     """每种媒体各产生一条，并在每一步校验首页与空间页卡片的累加数量。"""
     media = BleMediaCommands(page.a)
     baseline = page.pending_count_or_zero('home')
+    if baseline == 0 and page.a.context.get('config', {}).get('model') == 'G5':
+        # G5 回到前台后旧媒资通知可能晚于首页出现，先等这轮基线再触发拍摄。
+        try:
+            baseline = page.a.wait(lambda: page.pending_count_or_zero('home'), 'G5 历史待导入媒资同步', 20)
+        except WaitTimeout:
+            baseline = page.pending_count_or_zero('home')
+    page.a.log('pending-media-baseline', baseline)
     for expected, (kind, action) in enumerate((('拍照', media.take_photo), ('录像', media.record_video),
                                                ('录音', media.record_audio)), baseline + 1):
         action()
@@ -95,6 +102,20 @@ def test_import_from_gallery(gallery):
 
 def prepare_new_imported_media(gallery, kind, duration=15):
     """下载验证只使用本用例新建媒资，避免历史文件已存在于手机相册。"""
+    from studio.settings import SettingsPage
+    settings = SettingsPage(gallery.a)
+    settings.capture()
+    if settings.switch_state('auto_save_album_switch'):
+        settings.one('auto_save_album_switch').click()
+        gallery.a.assert_wait(lambda: settings.switch_state('auto_save_album_switch'), False,
+                              '手动下载前关闭自动保存', 8)
+    if gallery.pending_count_or_zero('home'):
+        gallery.import_from('home')
+    previous = set(gallery.imported_files(kind).values())
+    from cases.g5.test_capture import file_versions, imported_capture
+    from studio.devices import Adb
+    is_g5 = gallery.a.context['config'].get('model') == 'G5'
+    versions = file_versions(Adb(), gallery.a.context['phone'], gallery.package) if is_g5 else None
     before = gallery.pending_count_or_zero('home')
     command = BleMediaCommands(gallery.a)
     if kind == 'image':
@@ -104,7 +125,16 @@ def prepare_new_imported_media(gallery, kind, duration=15):
     gallery.a.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
                           f'BLE {"录像" if kind == "video" else "拍照"}后首页待导入媒资数量',
                           120 if kind == 'video' else 60, lambda actual, expected: actual >= expected)
-    gallery.import_from('home')
+    if is_g5:
+        path = imported_capture(gallery.a, gallery, Adb(), versions, kind)
+        files = {path}
+    else:
+        gallery.import_from('home')
+        files = set(gallery.imported_files(kind).values()) - previous
+    if len(files) != 1:
+        raise TestBlocked('本轮未生成唯一的新媒资，无法保证手动下载不重复。')
+    gallery.download_source = next(iter(files))
+    gallery.require_unsaved_files(files)
     gallery.preview_latest(kind)
 
 

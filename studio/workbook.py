@@ -188,8 +188,15 @@ def export(source, destination, mapping, records):
                             return match.group()
                         address = f'{mapping.result_col.upper()}{number}'
                         case = target[number]
-                        status = lookup.get((name, case['id']), {}).get('status', 'NOT_RUN')
+                        if name == 'G5_全量' and (name, case['id']) not in lookup:
+                            return match.group()
+                        record = lookup.get((name, case['id']), {})
+                        status = record.get('status', 'NOT_RUN')
                         text = EXCEL_LABELS[status]
+                        detail = str(record.get('detail') or '')
+                        if ((status == 'PASS' and '后台任务配置是否异常待人工核对' in detail)
+                                or '录制 10 秒视频；' in detail):
+                            text += '\n' + detail
                         body = match.group()
                         old = next((m for m in CELL.finditer(body) if re.search(r'\br="' + address + r'"', m.group())), None)
                         style = ''

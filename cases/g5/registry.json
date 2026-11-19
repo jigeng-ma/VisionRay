@@ -1,0 +1,180 @@
+[
+  {"sheet": "G5", "id": "PAIR_003", "automation_id": "VisionRay_0222", "node": "cases/g5/test_pairing.py::test_nearby_card_pair", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G5", "id": "PAIR_004", "automation_id": "VisionRay_0223", "node": "cases/g5/test_pairing.py::test_nearby_swipe_pair", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G5", "id": "PAIR_005", "automation_id": "VisionRay_0224", "node": "cases/g5/test_pairing.py::test_nearby_card_cancel", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G5", "id": "SS_006", "automation_id": "VisionRay_0225", "node": "cases/g5/test_device_management.py::test_g5_pending_media_unpair", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G5", "id": "SS_007", "automation_id": "VisionRay_0226", "node": "cases/g5/test_device_management.py::test_g5_pending_media_import", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G5_全量", "id": "PAIR_011", "automation_id": "VisionRay_0217", "node": "cases/g5/test_pairing_full.py::test_pairing_full[detection-order]", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G5_全量", "id": "PAIR_018", "automation_id": "VisionRay_0218", "node": "cases/g5/test_pairing_full.py::test_pairing_full[all-checks-pass]", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G5_全量", "id": "PAIR_028", "automation_id": "VisionRay_0219", "node": "cases/g5/test_pairing_full.py::test_pairing_full[next-starts-scan]", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G5_全量", "id": "PAIR_031", "automation_id": "VisionRay_0220", "node": "cases/g5/test_pairing_full.py::test_pairing_full[scan-results-duration]", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G5_全量", "id": "PAIR_050", "automation_id": "VisionRay_0221", "node": "cases/g5/test_pairing_full.py::test_pairing_full[bind-first-card]", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G5_全量", "id": "PAIR_058", "automation_id": "VisionRay_0197", "node": "cases/g5/test_pairing.py::test_pair_flow_echo_pilot", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G5_全量", "id": "PAIR_059", "automation_id": "VisionRay_0198", "node": "cases/g5/test_pairing.py::test_pair_flow_echo_crystal", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {
+    "sheet": "G5",
+    "id": "PAIR_001",
+    "automation_id": "VisionRay_0197",
+    "node": "cases/g5/test_pairing.py::test_pair_flow_echo_pilot",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 300
+  },
+  {
+    "sheet": "G5",
+    "id": "PAIR_002",
+    "automation_id": "VisionRay_0198",
+    "node": "cases/g5/test_pairing.py::test_pair_flow_echo_crystal",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 300
+  },
+  {
+    "sheet": "G5",
+    "id": "H-DM_004",
+    "automation_id": "VisionRay_0211",
+    "node": "cases/g5/test_reconnect.py::test_background_bluetooth_reconnect",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 300
+  },
+  {
+    "sheet": "G5",
+    "id": "H-DM_007",
+    "automation_id": "VisionRay_0212",
+    "node": "cases/g5/test_reconnect.py::test_reconnect_after_switch_and_restart",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 720
+  },
+  {"sheet": "G5", "id": "H-DM_025", "automation_id": "VisionRay_0213", "node": "cases/g5/test_device_management.py::test_g5_device_list", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 720},
+  {"sheet": "G5", "id": "H-DM_026", "automation_id": "VisionRay_0214", "node": "cases/g5/test_device_management.py::test_g5_device_settings", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 150},
+  {"sheet": "G5", "id": "H-DM_030", "automation_id": "VisionRay_0215", "node": "cases/g5/test_device_management.py::test_g5_switch_bound_device", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 720},
+  {"sheet": "G5", "id": "H-DM_032", "automation_id": "VisionRay_0216", "node": "cases/g5/test_device_management.py::test_g5_pair_from_device_management", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 1000},
+  {"sheet": "G5", "id": "Space_002", "automation_id": "VisionRay_0217", "node": "cases/g5/test_mixed_download.py::test_g5_mixed_download", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 1800},
+  {"sheet": "G5", "id": "SS_005", "automation_id": "VisionRay_0103", "node": "cases/g5/test_device_management.py::test_g5_unbind_one_of_multiple_devices", "models": ["G5"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 720},
+  {
+    "sheet": "G5",
+    "id": "Cam_001",
+    "automation_id": "VisionRay_0199",
+    "node": "cases/g5/test_capture.py::test_shooting_orientation",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 150
+  },
+  {
+    "sheet": "G5",
+    "id": "Cam_002",
+    "automation_id": "VisionRay_0200",
+    "node": "cases/g5/test_capture.py::test_photo_orientation",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 900
+  },
+  {
+    "sheet": "G5",
+    "id": "Cam_003",
+    "automation_id": "VisionRay_0201",
+    "node": "cases/g5/test_capture.py::test_video_orientation",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 900
+  },
+  {
+    "sheet": "G5",
+    "id": "Cam_008",
+    "automation_id": "VisionRay_0202",
+    "node": "cases/g5/test_capture.py::test_video_auto_stop[1min]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1200
+  },
+  {
+    "sheet": "G5",
+    "id": "Cam_009",
+    "automation_id": "VisionRay_0203",
+    "node": "cases/g5/test_capture.py::test_video_auto_stop[3min]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1600
+  },
+  {
+    "sheet": "G5",
+    "id": "Cam_010",
+    "automation_id": "VisionRay_0204",
+    "node": "cases/g5/test_capture.py::test_video_auto_stop[5min]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 3000
+  },
+  {
+    "sheet": "G5",
+    "id": "Cam_011",
+    "automation_id": "VisionRay_0205",
+    "node": "cases/g5/test_capture.py::test_video_auto_stop[7min]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 3500
+  },
+  {
+    "sheet": "G5",
+    "id": "Cam_012",
+    "automation_id": "VisionRay_0206",
+    "node": "cases/g5/test_capture.py::test_video_auto_stop[10min]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 4200
+  },
+  {
+    "sheet": "G5",
+    "id": "F-OTA_001",
+    "automation_id": "VisionRay_0207",
+    "node": "cases/g5/test_firmware_ota.py::test_g5_ota[bt-manual]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1500
+  },
+  {
+    "sheet": "G5",
+    "id": "F-OTA_002",
+    "automation_id": "VisionRay_0208",
+    "node": "cases/g5/test_firmware_ota.py::test_g5_ota[isp-manual]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1500
+  },
+  {
+    "sheet": "G5",
+    "id": "F-OTA_003",
+    "automation_id": "VisionRay_0209",
+    "node": "cases/g5/test_firmware_ota.py::test_g5_ota[bt-forced]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1500
+  },
+  {
+    "sheet": "G5",
+    "id": "F-OTA_004",
+    "automation_id": "VisionRay_0210",
+    "node": "cases/g5/test_firmware_ota.py::test_g5_ota[isp-optional]",
+    "models": ["G5"],
+    "requires": ["pairing"],
+    "glasses_adb_required": false,
+    "timeout_seconds": 1800
+  }
+]

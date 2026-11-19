@@ -17,7 +17,8 @@ class PopupGuard:
 
     def _allow_system_permission(self, texts, packages):
         """允许 VisionRay 首次功能使用所需的 Android 系统权限，并选择最大授权范围。"""
-        if not any('Allow VisionRay to' in text or '允许“VisionRay”' in text for text in texts):
+        if not any('Allow VisionRay to' in text or '允许“VisionRay”' in text
+                   or text == '¿Permitir que VisionRay te envíe notificaciones?' for text in texts):
             return False
         if not any(package == 'android' or package.endswith('.permissioncontroller')
                    or package == 'com.lbe.security.miui' for package in packages if package):
@@ -34,7 +35,7 @@ class PopupGuard:
         preferred = ('Allow all', '允许访问所有照片') if 'photos and videos' in joined or '照片和视频' in joined else (
             'Allow all the time', 'Allow', 'Allow only while using the app',
             'While using the app', '允许', '始终允许',
-            '仅在使用中允许', '使用应用时允许')
+            '仅在使用中允许', '使用应用时允许', 'Permitir')
         for text in preferred:
             buttons = [e for e in a.driver.find_elements('xpath', f"//*[@text={text!r}]") if e.is_displayed() and e.is_enabled()]
             if len(buttons) == 1:
@@ -75,6 +76,11 @@ class PopupGuard:
             return False
         buttons = [e for e in self.android.driver.find_elements('id', package + ':id/tv_agree')
                    if e.is_displayed() and e.is_enabled()]
+        if not buttons:
+            # Splash can disappear between the UI snapshot and the element lookup.
+            current_ids = {node.get('resource-id') for node in ET.fromstring(self.android.driver.page_source).iter()}
+            if not first_page.intersection(current_ids) or package + ':id/tv_agree' not in current_ids:
+                return False
         if len(buttons) != 1:
             raise TestBlocked('已识别首次隐私协议弹窗，但 Agree 按钮不唯一或缺失。')
         self.android.capture('popup-first-launch')

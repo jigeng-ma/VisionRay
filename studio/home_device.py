@@ -1,5 +1,7 @@
 """G 系列首页和设备管理的公共页面动作。"""
+import re
 import time
+from selenium.common.exceptions import StaleElementReferenceException
 from studio.errors import TestBlocked, WaitTimeout
 
 
@@ -15,9 +17,19 @@ class HomeDevicePage:
 
     def _bound_names(self):
         from xml.etree import ElementTree as ET
-        resource = self.package + ':id/tv_device_name'
-        return [node.get('text', '').strip() for node in ET.fromstring(self.a.driver.page_source).iter()
-                if node.get('resource-id') == resource and node.get('text', '').strip()]
+        nodes = list(ET.fromstring(self.a.driver.page_source).iter())
+        def texts(resource):
+            return [node.get('text', '').strip() for node in nodes
+                    if node.get('resource-id') == self.package + ':id/' + resource
+                    and node.get('displayed') != 'false' and node.get('text', '').strip()]
+
+        names = texts('tv_device_name')
+        if names or self.a.context['config'].get('model') != 'G5':
+            return names
+        # 1.2.52 的 G5 首页将当前眼镜名称直接放进标题栏。
+        known = {self.name, *(item['glasses_name'] for item in self.a.context.get('glasses_inventory', []))}
+        return [title for title in texts('devices_title') if title in known or re.fullmatch(
+            r'(?:DPVR\s+G(?:1|3|5|6|7)[-_]\S+|(?:DPVR\s+|Flow\s+)?Nova(?:[\s_-].+)?)', title, re.I)]
 
     def home(self, require_target=True):
         self.a.ensure_foreground()
@@ -63,11 +75,15 @@ class HomeDevicePage:
                     except WaitTimeout as exc:
                         raise TestBlocked('首页未显示目标眼镜或 Add Device 入口：' + self.name) from exc
             else:
-                tabs = [e for e in self.a.driver.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()]
-                if tabs:
-                    tabs[0].click()
-                else:
-                    self.a.driver.press_keycode(4)
+                try:
+                    tabs = [e for e in self.a.driver.find_elements('id', self.package + ':id/tabIcon') if e.is_displayed()]
+                    if tabs:
+                        tabs[0].click()
+                    else:
+                        self.a.driver.press_keycode(4)
+                except StaleElementReferenceException:
+                    # 导入完成时底部导航会重绘，下一轮重新定位。
+                    continue
             time.sleep(.5)
         title = self.a.element('pair.home_title', 20)
         if not title or (require_target and self.name not in self._bound_names()):
@@ -146,9 +162,21 @@ class HomeDevicePage:
     def device_settings(self):
         self.home(); self.a.driver.find_element('id', self.package + ':id/devices_menu').click()
         self.a.wait(lambda: self.a.driver.current_activity.endswith('MyDevicesActivity'), '设备管理页', 12)
-        controls = [e for e in self.a.driver.find_elements('id', self.package + ':id/ivSettings') if e.is_displayed()]
-        if len(controls) != 1: raise AssertionError('设备管理页未唯一找到设置入口。')
-        controls[0].click(); self.assert_system_info()
+        def settings_button():
+            root = self.a.driver
+            if self.a.context['config'].get('model') == 'G5':
+                cards = [card for card in root.find_elements('id', self.package + ':id/container')
+                         if card.is_displayed() and any(label.is_displayed() and label.text.strip() == self.name
+                         for label in card.find_elements('id', self.package + ':id/tvName'))]
+                if len(cards) != 1:
+                    return None
+                root = cards[0]
+            controls = [e for e in root.find_elements('id', self.package + ':id/ivSettings')
+                        if e.is_displayed() and e.is_enabled()]
+            return controls[0] if len(controls) == 1 else None
+        button = self.a.wait(settings_button, f'设备管理页 {self.name} 的设置入口', 12)
+        button.click()
+        self.assert_system_info()
 
     def assert_system_info(self):
         self.text('System Settings', 15)
@@ -157,46 +185,94 @@ class HomeDevicePage:
             raise AssertionError('系统设置页未显示有效眼镜基础信息。')
         self.a.capture('system-settings')
 
-    def unbind(self):
-        """若仍绑定目标眼镜，则进入系统设置完成解绑；已解绑时直接返回。"""
+    def pending_media_unpair_actions(self):
+        a = self.a
+        unpairs = [e for e in a.driver.find_elements('id', self.package + ':id/tv_cancel')
+                   if e.is_displayed() and e.is_enabled() and e.text == 'Unpair']
+        imports = [e for e in a.driver.find_elements('id', self.package + ':id/tv_confirm')
+                   if e.is_displayed() and e.is_enabled() and e.text == 'Import']
+        return (unpairs[0], imports[0]) if len(unpairs) == len(imports) == 1 else None
+
+    def open_unpair_confirmation(self):
+        a = self.a
+        self.setting('System Settings', require_target=False)
+        for _ in range(8):
+            choices = [e for e in a.driver.find_elements('xpath',
+                "//*[@package='%s' and (@text='Unbind' or @text='Unbind Glasses' or @text='Unpair Glasses')]" %
+                self.package) if e.is_displayed() and e.is_enabled()]
+            if len(choices) == 1:
+                choices[0].click()
+                a.log('unbind', 'open-confirmation')
+                return
+            size = a.driver.get_window_size()
+            a.driver.swipe(int(size['width'] * .50), int(size['height'] * .78),
+                           int(size['width'] * .50), int(size['height'] * .28), 500)
+        a.capture('unbind-not-found')
+        raise AssertionError('系统设置页滑到底部后未找到 Unbind 按钮。')
+
+    def unbind(self, *, require_empty=True, allow_discovery=False):
+        """解绑当前眼镜，返回是否还有其他眼镜绑定。"""
         a = self.a
         a.ensure_foreground()
+
+        def wait_after_confirmation(previous=frozenset()):
+            def destination():
+                # 有待导入媒资时，首次确认后还会出现第二层提醒。
+                # 本动作已明确要求解绑，继续选择 Unpair，不能把它当首页等待。
+                if actions := self.pending_media_unpair_actions():
+                    a.capture('unbind-pending-media-confirmation')
+                    actions[0].click()
+                    a.log('unbind', 'confirmed-pending-media')
+                    return None
+                if a.find('pair.add'):
+                    return 'empty'
+                if allow_discovery:
+                    from .pairing import discovery_panel
+                    if discovery_panel(a) is not None:
+                        return 'discovery'
+                if not require_empty and a.find('pair.home_title'):
+                    names = set(self._bound_names())
+                    if names and names != previous:
+                        return 'remaining'
+                return None
+
+            label = '解绑后 Add Device 页面状态' if require_empty else '解绑后设备列表更新'
+            return a.wait(destination, label, 20) == 'remaining'
+
         # 上轮中断在确认框时，先完成已明确打开的解绑动作，避免首页导航被模态框拦截。
-        pending = [e for e in a.driver.find_elements('xpath',
-            "//*[@resource-id='%s:id/tv_confirm' and (@text='Unbind' or @text='Unpair Glasses') and @clickable='true']" % self.package)
-            if e.is_displayed()]
-        if len(pending) == 1:
-            pending[0].click(); a.log('unbind', 'complete-pending-confirmation')
-            a.wait(lambda: a.find('pair.add'), '完成遗留解绑后显示 Add Device 首页', 20)
-            return
+        def confirmation(opened=False):
+            pending = [e for e in a.driver.find_elements('xpath',
+                "//*[@resource-id='%s:id/tv_confirm' and (@text='Unbind' or @text='Unpair Glasses') and @clickable='true']" % self.package)
+                if e.is_displayed() and e.is_enabled()]
+            if len(pending) == 1:
+                return pending[0]
+            media_actions = self.pending_media_unpair_actions()
+            if media_actions:
+                return media_actions[0]
+            if opened:
+                choices = [e for e in a.driver.find_elements('xpath',
+                    "//*[@package='%s' and (@text='Unbind' or @text='Unpair Glasses') and @clickable='true']" % self.package)
+                    if e.is_displayed() and e.is_enabled()]
+                return choices[-1] if choices else None
+            return None
+
+        pending = confirmation()
+        if pending is not None:
+            pending.click(); a.log('unbind', 'complete-pending-confirmation')
+            return wait_after_confirmation()
         if a.find('pair.add'):
             a.log('unbind', 'already-unbound')
-            return
+            return False
         if a.find('pair.tutorial_begin'):
             a.click('pair.skip'); a.element('pair.skip_title'); a.click('pair.skip_confirm')
             a.wait(lambda: a.find('pair.home_title'), '跳过现有引导回到首页', 15)
-        self.setting('System Settings', require_target=False)
-        button = None
-        for _ in range(8):
-            choices = [e for e in a.driver.find_elements('xpath',
-                "//*[@package='%s' and (@text='Unbind' or @text='Unbind Glasses' or @text='Unpair Glasses')]" % self.package)
-                if e.is_displayed() and e.is_enabled()]
-            if len(choices) == 1:
-                button = choices[0]
-                break
-            size = a.driver.get_window_size()
-            # 该页 ScrollView 与引导页一样不响应 swipeGesture，使用真实触点上滑。
-            a.driver.swipe(int(size['width'] * .50), int(size['height'] * .78),
-                           int(size['width'] * .50), int(size['height'] * .28), 500)
-        if not button:
-            a.capture('unbind-not-found')
-            raise AssertionError('系统设置页滑到底部后未找到 Unbind 按钮。')
-        button.click(); a.log('unbind', 'open-confirmation')
-        def confirmation():
-            choices = [e for e in a.driver.find_elements('xpath',
-                "//*[@package='%s' and (@text='Unbind' or @text='Unpair Glasses') and @clickable='true']" % self.package) if e.is_displayed()]
-            return choices[-1] if choices else None
-        confirm = a.wait(confirmation, '解绑确认弹窗', 10)
+        previous = frozenset()
+        if not require_empty:
+            self.home(require_target=False)
+            previous = set(self._bound_names())
+        self.open_unpair_confirmation()
+        confirm = a.wait(lambda: confirmation(opened=True), '解绑确认弹窗', 10)
         confirm.click(); a.log('unbind', 'confirmed')
-        a.assert_wait(lambda: bool(a.find('pair.add')), True, '解绑后 Add Device 页面状态', 20)
-        a.capture('unbound-home')
+        remaining = wait_after_confirmation(previous)
+        a.capture('remaining-devices-home' if remaining else 'unbound-home')
+        return remaining

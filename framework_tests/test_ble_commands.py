@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 import pytest
-from studio.ble_commands import BleMediaCommands
+from studio.ble_commands import BleMediaCommands, DurationSettingMissing
 from studio.errors import TestBlocked
 
 
@@ -32,6 +32,33 @@ def media():
                                    'config': {'product': 'G系列', 'model': 'G1', 'package': 'test'}}))
 
 
+@pytest.mark.parametrize('model,kind,duration,allowed', [
+    ('G5', 'audio', 15, True), ('G5', 'audio', 30, False),
+    ('G5', 'video', 15, False), ('G1', 'audio', 15, False),
+])
+def test_missing_duration_only_allows_g5_short_audio(monkeypatch, model, kind, duration, allowed):
+    home = Mock()
+    monkeypatch.setattr('studio.ble_commands.HomeDevicePage', home)
+    wake = Mock()
+    monkeypatch.setattr('studio.devices.Adb.shell', wake)
+    page = media()
+    page.a.context['config']['model'] = model
+    page.a.find.return_value = None
+    page._read_duration = Mock(side_effect=DurationSettingMissing('missing'))
+    page._hold = Mock()
+    page._click = Mock()
+    record = getattr(page, f'record_{kind}')
+    if allowed:
+        record(duration=duration)
+        assert [call.args[0] for call in page._click.call_args_list] == ['start_audio', 'stop_audio']
+        page._hold.assert_called_once_with(15)
+        wake.assert_called_once()
+    else:
+        with pytest.raises(DurationSettingMissing):
+            record(duration=duration)
+        page._click.assert_not_called()
+
+
 def test_counts_defaults_and_cleanup(monkeypatch):
     monkeypatch.setattr('studio.ble_commands.time.sleep', lambda _: None)
     wake = Mock()
@@ -54,6 +81,19 @@ def test_counts_defaults_and_cleanup(monkeypatch):
     assert [c.args[0] for c in p._click.call_args_list] == ['start_audio', 'stop_audio']
     assert wake.call_count == 3
     assert all(call.args == ('phone-1', 'input', 'keyevent', '224') for call in wake.call_args_list)
+
+
+def test_video_preparation_runs_after_duration_and_before_each_trigger(monkeypatch):
+    monkeypatch.setattr('studio.ble_commands.time.sleep', lambda _: None)
+    monkeypatch.setattr('studio.devices.Adb.shell', Mock())
+    page = media()
+    sequence = []
+    page._ensure_duration = Mock(side_effect=lambda *_: sequence.append('duration'))
+    page._click = Mock(side_effect=sequence.append)
+    page._hold = Mock()
+    page.record_video(count=2, before_start=lambda: sequence.append('direction'))
+    assert sequence == ['duration', 'direction', 'start_video', 'stop_video',
+                        'direction', 'start_video', 'stop_video']
 
 
 def test_permission_page_repairs_media_permissions_and_retries(monkeypatch):
@@ -122,6 +162,36 @@ def test_bad_count_never_operates(count):
     with pytest.raises(ValueError):
         p.take_photo(count)
     p._click.assert_not_called()
+
+
+def test_g5_dismisses_duration_dialog_when_target_is_already_selected():
+    from cases.g5.test_capture import select_video_limit
+
+    page = Mock(assert_wait=Mock())
+    selection = Mock(text='1Min')
+    page.driver.find_elements.return_value = [selection]
+    page.wait.side_effect = lambda predicate, *_: predicate()
+    commands = Mock(package='test')
+    commands._read_duration.return_value = 60
+    commands._seconds.side_effect = BleMediaCommands._seconds
+    select_video_limit(page, commands, 1)
+    selection.click.assert_not_called()
+    page.driver.press_keycode.assert_called_once_with(4)
+
+
+def test_g5_missing_duration_does_not_select_another_option():
+    from cases.g5.test_capture import select_video_limit
+
+    page = Mock()
+    selection = Mock(text='9Min')
+    page.driver.find_elements.return_value = [selection]
+    page.wait.side_effect = lambda predicate, *_: predicate()
+    commands = Mock(package='test')
+    commands._read_duration.return_value = 300
+    commands._seconds.side_effect = BleMediaCommands._seconds
+    with pytest.raises(TestBlocked, match='未提供唯一的 5 分钟'):
+        select_video_limit(page, commands, 5)
+    selection.click.assert_not_called()
 
 
 @pytest.mark.parametrize('kind,duration', [('video',721),('audio',7201),('video',0),('audio',float('nan')),('video',True)])

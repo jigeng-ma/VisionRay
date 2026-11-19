@@ -44,11 +44,9 @@ def test_ai_voice_type(android):
 
 def _prepare_watermarked_photo(android):
     page = SettingsPage(android); page.capture(); page.toggle_round_trip('photo_watermark_switch'); page.on('photo_watermark_switch')
-    gallery = GalleryPage(android); before = gallery.pending_count_or_zero('home')
-    BleMediaCommands(android).take_photo()
-    android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
-                        '拍照后首页待导入媒资数量', 300, lambda actual, expected: actual >= expected)
-    gallery.import_from('home'); gallery.preview_latest('image')
+    from cases.g_series.test_gallery import prepare_new_imported_media
+    gallery = GalleryPage(android)
+    prepare_new_imported_media(gallery, 'image')
     return gallery
 
 
@@ -68,38 +66,51 @@ def test_photo_watermark_share(android):
     run(android, action)
 
 
-def test_video_watermark(android):
+def test_video_watermark(android, record_property):
     def check_watermark():
         page = SettingsPage(android); page.capture(); page.toggle_round_trip('video_watermark_switch'); page.on('video_watermark_switch')
         gallery = GalleryPage(android)
         before, videos = gallery.pending_count_or_zero('home'), gallery.gallery_media_count()['video']
-        duration = 60
+        duration = 10
         BleMediaCommands(android).record_video(duration=duration)
         try:
             android.assert_wait(lambda: gallery.pending_count_or_zero('home'), before + 1,
                                 '录像后首页待导入媒资数量', duration + 180,
                                 lambda actual, expected: actual >= expected)
             gallery.import_from('home', timeout=max(300, duration + 180))
+            imported_at = time.monotonic()
             android.assert_wait(lambda: gallery.gallery_media_count()['video'], videos + 1,
                                 'APP 媒资库视频数量', duration + 180,
                                 lambda actual, expected: actual >= expected)
         except WaitTimeout:
             raise AssertionError(f'录像 {duration} 秒后未在预留时间内完成导入；'
                                  f'导入前视频 {videos} 个，当前 {gallery.gallery_media_count()["video"]} 个。') from None
+        deadline = imported_at + 120
+        timings = []
         gallery.preview_latest('video')
-        for stage in ('详情封面', '播放后暂停帧'):
+        # 水印加在实际视频中，详情封面可能仍使用导入时缓存的无水印帧。
+        for stage in ('播放后暂停帧',):
             if stage == '播放后暂停帧':
                 gallery.play_pause()
-            deadline = time.monotonic() + duration + 120
             while True:
                 try:
                     gallery.assert_visionray_watermark(video=True)
+                    elapsed = time.monotonic() - imported_at
+                    if elapsed > 120:
+                        raise AssertionError('水印检出时已超过导入成功后 120 秒。')
+                    timings.append(f'{stage}水印首次检出耗时 {elapsed:.2f} 秒')
+                    detail = f'录制 {duration} 秒视频；自导入成功起计时，限时 120 秒；' + '；'.join(timings)
+                    record_property('studio_detail', detail)
+                    android.log('video-watermark-timing', {'stage': stage, 'seconds_since_import': elapsed,
+                                                         'recording_seconds': duration, 'limit_seconds': 120})
                     break
                 except AssertionError as error:
                     if time.monotonic() >= deadline:
-                        raise AssertionError(f'视频已导入，但{stage}在 {duration + 120} 秒内'
+                        record_property('studio_detail', f'录制 {duration} 秒视频；导入成功后水印检查超时；'
+                                        + '；'.join(timings))
+                        raise AssertionError(f'视频已导入，但{stage}在导入成功后 120 秒内'
                                              f'仍未识别到 VisionRay 水印：{error}') from None
-                    time.sleep(10)
+                    time.sleep(min(5, max(0, deadline - time.monotonic())))
                     # 详情页不会因导入后的后台处理自动刷新；重新进入后再检查新画面。
                     gallery.d.press_keycode(4)
                     gallery.preview_latest('video')

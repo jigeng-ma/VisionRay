@@ -226,6 +226,14 @@ class GalleryPage:
 
     def media_records(self):
         """读取 APP 已导入媒资的数据库行，用于确认删除后的媒资已不在 APP 内。"""
+        return set(self._media_query('select rowid, file_type from file_metadata'))
+
+    def imported_files(self, kind):
+        """返回指定种类已导入的文件，以数据库行 ID 追踪本次新增媒资。"""
+        return dict(self._media_query(
+            'select rowid, path from file_metadata where file_type = ?', (kind,)))
+
+    def _media_query(self, query, parameters=()):
         from .devices import Adb
         phone = self.a.context.get('phone')
         if not phone:
@@ -245,11 +253,12 @@ class GalleryPage:
                     with open(path + suffix, 'wb') as file:
                         file.write(data)
                 database = sqlite3.connect(path)
-                rows = database.execute('select rowid, file_type from file_metadata').fetchall()
-                database.close()
+                try:
+                    return database.execute(query, parameters).fetchall()
+                finally:
+                    database.close()
         except Exception as error:
             raise TestBlocked('无法读取 APP 媒资数据库：' + str(error)) from error
-        return set(rows)
 
     def phone_album_rows(self, kind):
         """读取手机相册 MediaStore 的媒体 ID；下载校验必须基于真实新增文件。"""
@@ -471,6 +480,9 @@ class GalleryPage:
 
     def download_and_assert_phone_added(self, kind):
         """下载当前媒资，返回 MediaStore 中唯一新增的真实文件 ID。"""
+        source = getattr(self, 'download_source', None)
+        if source:
+            self.require_unsaved_files([source])
         before = self.phone_album_rows(kind)
         self.download()
         self.a.assert_wait(lambda: len(self.phone_album_rows(kind) - before), 1,
@@ -478,6 +490,13 @@ class GalleryPage:
         added_id = next(iter(self.phone_album_rows(kind) - before))
         self.a.log('phone-album-added', {'kind': kind, 'before': len(before), 'id': added_id})
         return added_id
+
+    def require_unsaved_files(self, paths):
+        records = self._media_query('select path, uri from file_metadata')
+        saved = {path for path, uri in records if uri and str(uri).startswith('content://media/')}
+        repeated = saved.intersection(paths)
+        if repeated:
+            raise TestBlocked('所选媒资已保存到手机相册，需准备未下载的新媒资：' + '、'.join(sorted(repeated)))
 
     def _watermark_text(self, image, label, video=False):
         try:
@@ -574,9 +593,26 @@ class GalleryPage:
         self._watermark_text(image, 'system-share-sheet')
 
     def download(self):
-        self.action('ll_download', '下载')
-        self.a.assert_wait(lambda: not self.all('ll_download') or self.one('ll_download').is_enabled(),
-                           True, '下载完成状态', 60)
+        original = self.d.get_settings()
+        try:
+            self.d.update_settings({'enableMultiWindows': True, 'waitForIdleTimeout': 0})
+            self.action('ll_download', '下载')
+
+            def saved():
+                from xml.etree import ElementTree as ET
+                texts = {node.get('text', '').strip().casefold()
+                         for node in ET.fromstring(self.d.page_source).iter()}
+                if texts & {'save to gallery', 'saved to gallery', '已保存至相册'}:
+                    self.a.log('download-saved-to-gallery', True)
+                    return True
+                # 先检查 toast，再处理权限，避免成功提示被后续截图耗时错过。
+                self.a.popups.handle()
+                return False
+
+            self.a.wait(saved, '相册权限处理后显示 Save to Gallery', 60, handle_popups=False)
+        finally:
+            self.d.update_settings({key: original[key] for key in
+                                    ('enableMultiWindows', 'waitForIdleTimeout') if key in original})
 
     def share(self):
         self.action('ll_share', '分享')

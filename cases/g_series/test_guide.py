@@ -1,7 +1,6 @@
 import pytest
 from studio.errors import TestBlocked
 from studio.guide import GuidePage
-from studio.home_device import HomeDevicePage
 from studio.pairing import PairingPage
 
 
@@ -23,7 +22,6 @@ def test_done(android):
 
 def test_skip_after_rebind(android):
     def run():
-        HomeDevicePage(android).unbind()
         pairing = PairingPage(android)
         pairing.options['skip_tutorial'] = True
         pairing.run()

@@ -8,10 +8,11 @@ import re
 import traceback
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from .battery_monitor import open_window as open_battery_monitor
 from .config import catalog, resolve_device, model_from_name
 from .devices import Adb
 from .workbook import Mapping, inspect, LABELS, export, automation_count
-from .runner import execute, execute_many, registry, case_applies
+from .runner import execute, execute_many, registry, case_applies, runnable_modules
 
 PRODUCT_LABELS = {'G系列': 'G1/G3/G6'}
 
@@ -351,6 +352,7 @@ class App(tk.Tk):
         self.start_button.bind('<KP_Enter>', lambda _event: 'break')
         self.stop_button = ttk.Button(footer, text='停止执行', command=self.stop, state='disabled')
         self.stop_button.pack(side='left', padx=6)
+        self.button(footer, '眼镜充电监测', lambda: open_battery_monitor(self)).pack(side='left')
         ttk.Button(footer, text='打开结果目录', command=self.open_results).pack(side='right')
         self.button(footer, '重新导出历史轮次', self.reexport).pack(side='right', padx=6)
         self.progress = ttk.Progressbar(body, mode='determinate')
@@ -553,7 +555,7 @@ class App(tk.Tk):
             after = hashlib.sha256(Path(path).read_bytes()).hexdigest()
             if before != after:
                 raise ValueError('读取期间 Excel 被修改，请重新读取。')
-            return modules, registry(self.root_dir, product), mapping, after
+            return runnable_modules(modules, registry(self.root_dir, product)), mapping, after
         self.background('loaded', read)
 
     def refresh_devices(self):
@@ -812,7 +814,8 @@ class App(tk.Tk):
         if row:
             name = self.tree.set(row, 'module')
             m = self.modules[name]
-            messagebox.showinfo(name, '\n'.join(m['warnings']) or m['reason'] or '编号校验通过。自动化编号数量见“自动化编号数”列。')
+            warnings = m['warnings'] + m.get('source_warnings', [])
+            messagebox.showinfo(name, '\n'.join(warnings) or m['reason'] or '编号校验通过。自动化编号数量见“自动化编号数”列。')
 
     def render_selection(self):
         for row in self.tree.get_children():
@@ -955,17 +958,20 @@ class App(tk.Tk):
                 if kind in ('devices', 'devices_auto'):
                     self.show_devices(value, automatic=kind == 'devices_auto')
                 elif kind == 'loaded':
-                    self.modules, entries, self.loaded_mapping, self.loaded_hash = value
-                    self.selected = set(self.saved_state.get('selected', ())) & set(self.modules)
+                    self.modules, self.loaded_mapping, self.loaded_hash = value
+                    self.selected = {name for name in self.saved_state.get('selected', ())
+                                     if (m := self.modules.get(name)) and m['cases'] and not m['warnings']}
                     self.tree.delete(*self.tree.get_children())
                     for name, m in self.modules.items():
                         ready = automation_count(m)
                         check = f'{len(m["warnings"])} 项问题，双击查看' if m['warnings'] else m['reason'] or (f'忽略 {m["ignored_id_only"]} 行仅编号' if m['ignored_id_only'] else f'编号有效 / 表头第 {m["header"]} 行')
+                        if m.get('source_warnings') and not m['warnings'] and m['cases']:
+                            check = f'已登记用例可执行，原表 {len(m["source_warnings"])} 项提示'
                         self.tree.insert('', 'end', values=('☐', name, '—', len(m['cases']), ready, check, '未执行'),
                                          tags=('invalid',) if m['warnings'] or not m['cases'] else ())
                     self.render_selection()
                     self.save_state()
-                    self.status.set(f'已读取全部 {len(self.modules)} 个 Sheet。汇总页、空表及编号异常模块保留显示，禁止执行。')
+                    self.status.set(f'已读取全部 {len(self.modules)} 个 Sheet。请勾选可执行的工作表。')
                     self.refresh_coverage()
                 elif kind == 'preflight':
                     self.status.set('连接检查通过；蓝牙眼镜的身份和绑定结果将在用例中验证。')
@@ -1067,6 +1073,11 @@ class App(tk.Tk):
         self.after(100, self.poll)
 
     def close(self):
+        monitor = getattr(self, 'battery_window', None)
+        if monitor is not None and monitor.winfo_exists():
+            monitor.request_close()
+            if monitor.winfo_exists():
+                return
         if self.busy:
             self.stop()
             self.status.set('正在处理或保存结果，请完成后关闭窗口。')

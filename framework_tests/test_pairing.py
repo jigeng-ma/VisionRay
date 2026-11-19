@@ -154,6 +154,32 @@ class PopupTests(unittest.TestCase):
         self.assertEqual(a.popups.handle.call_count,7)
 
 class ScrollTests(unittest.TestCase):
+    def test_discovery_swipes_before_pairing_off_center_target(self):
+        android = Mock()
+        android.context = {'glasses_name': 'DPVR G5-0791', 'config': {
+            'model': 'G5', 'package': 'app', 'pairing': {'search_timeout': 30}}}
+        panel = Mock()
+        carousel = Mock(rect={'x': 0, 'y': 0, 'width': 900, 'height': 500})
+        target = Mock(text='DPVR G5-0791', rect={'x': 700, 'width': 200})
+        button = Mock(text='Pair')
+        panel.find_elements.side_effect = lambda _, locator: {
+            'app:id/device_carousel': [carousel], 'app:id/device_name': [target], 'app:id/pair': [button],
+        }[locator]
+        android.driver.find_elements.return_value = [panel]
+
+        def swipe(start_x, start_y, end_x, end_y, duration):
+            self.assertGreater(start_x, end_x)
+            button.click.assert_not_called()
+            target.rect = {'x': 350, 'width': 200}
+
+        android.driver.swipe.side_effect = swipe
+        android.wait.side_effect = lambda read, *_: read() or read()
+        pairing = PairingPage(android)
+        with patch.object(pairing, 'finish_binding'):
+            pairing.bind_discovered()
+        android.driver.swipe.assert_called_once()
+        button.click.assert_called_once_with()
+
     def test_g_series_switch_uses_one_rapid_eleven_tap_sequence(self):
         a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
         tabs=[Mock(),Mock(),Mock()]
@@ -193,24 +219,26 @@ class ScrollTests(unittest.TestCase):
 
     def test_add_device_login_redirect_restores_account_before_models(self):
         a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
+        a.find.return_value = False
         a.wait.side_effect=['login', Mock(), Mock()]
         a.driver.find_elements.return_value=[Mock(text=name, is_displayed=Mock(return_value=True))
                                              for name in ('DPVR G1', 'DPVR G3', 'DPVR G6')]
         with patch('studio.auth.AuthPage') as auth, patch.object(
             PairingPage, '_model_names', return_value={'DPVR G1', 'DPVR G3', 'DPVR G6'}):
             PairingPage(a).enable_g_series_models()
-        auth.return_value.registered.assert_called_once_with()
+        auth.return_value.login_for_pairing.assert_called_once_with()
         self.assertEqual(a.click.call_args_list[:2], [unittest.mock.call('pair.add')] * 2)
 
     def test_g7_login_redirect_restores_account_before_flow_pro_models(self):
         a = Mock()
+        a.find.return_value = False
         a.context = {'config': {'product': 'G7', 'package': 'app',
                                 'pairing': {'model_label': 'Flow Pro Pilot'}}}
         a.wait.side_effect = ['login', Mock()]
         a.driver.find_elements.return_value = [Mock(is_displayed=Mock(return_value=True))]
         with patch('studio.auth.AuthPage') as auth:
             PairingPage(a).open_model_list()
-        auth.return_value.registered.assert_called_once_with()
+        auth.return_value.login_for_pairing.assert_called_once_with()
         self.assertEqual(a.click.call_args_list, [unittest.mock.call('pair.add')] * 2)
         a.element.assert_called_once_with('pair.models_title', 12)
 

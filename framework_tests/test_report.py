@@ -21,7 +21,9 @@ class ReportTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
-            (folder / 'evidence' / 'VisionRay_0001').mkdir(parents=True)
+            evidence = folder / 'evidence' / 'VisionRay_0001'
+            evidence.mkdir(parents=True)
+            (evidence / 'G5 landscape.mp4').touch()
             write_report(folder, 'run_1', {'config': {'model': 'G6'}, 'glasses_name': 'DPVR G6',
                                             'app_version': '1.2.42'}, records,
                          {('模块 A', 'A_001'): {'automation_id': 'VisionRay_0001'}})
@@ -34,6 +36,7 @@ class ReportTests(unittest.TestCase):
             self.assertIn('data-group="PENDING"', page)
             self.assertNotIn('状态分布', page)
             self.assertIn('href="evidence/VisionRay_0001/"', page)
+            self.assertIn('href="evidence/VisionRay_0001/G5%20landscape.mp4"', page)
             self.assertIn('target="_blank" onclick="return !window.open(this.href,', page)
             self.assertIn('popup=yes,width=1200,height=800', page)
 

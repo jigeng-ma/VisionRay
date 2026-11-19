@@ -3,6 +3,7 @@
 from collections import Counter, defaultdict
 from html import escape
 from pathlib import Path
+from urllib.parse import quote
 import json
 import re
 
@@ -74,6 +75,9 @@ def write_report(folder, run_id, context, records, entries):
             evidence_text = (f'<a href="evidence/{escape(automation_id, quote=True)}/" target="_blank" '
                              f'onclick="return !window.open(this.href, \'_blank\', \'popup=yes,width=1200,height=800\')">'
                              f'{evidence_text}</a>')
+            for video in sorted(evidence.glob('*.mp4')):
+                href = quote(video.relative_to(folder).as_posix())
+                evidence_text += f'<br><a href="{escape(href, quote=True)}" target="_blank">{escape(video.name)}</a>'
         detail = str(record.get('detail') or '')
         if detail:
             brief = escape(_brief(detail))

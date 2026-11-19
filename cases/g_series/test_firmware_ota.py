@@ -2,8 +2,8 @@
 
 import pytest
 
-from studio.errors import TestBlocked, WaitTimeout
-from studio.firmware_ota import FirmwareUpdatePage, choose_target, prepare_target, clear_target, ensure_system_bluetooth_pairing
+from studio.errors import TestBlocked
+from studio.firmware_ota import manual_update, startup_update
 
 
 def run(android, action, preserve_popup=False):
@@ -19,80 +19,19 @@ def run(android, action, preserve_popup=False):
         android.popups.preserve.discard("firmware_update")
 
 
-def _restart_app(android):
-    android.restart()
-
-
-def _manual_update(android, firmware):
-    FirmwareUpdatePage(android).dismiss_stale_startup_popup()
-    before, target, direction = choose_target(android, firmware)
-    ensure_system_bluetooth_pairing(android)
-    try:
-        prepare_target(target["task_id"], mandatory=False, model=target['model'])
-        page = FirmwareUpdatePage(android)
-        page.open()
-        page.start()
-        return page.wait_for_completion(target["version"], before, direction, firmware=firmware)
-    finally:
-        clear_target(target["task_id"])
-
-
-def _startup_update(android, firmware, mandatory):
-    FirmwareUpdatePage(android).dismiss_stale_startup_popup()
-    before, target, direction = choose_target(android, firmware)
-    if mandatory:
-        ensure_system_bluetooth_pairing(android)
-    try:
-        prepare_target(target["task_id"], mandatory=mandatory, model=target['model'])
-        if not mandatory:
-            # 非强制提示通常只在新装 APP 登录并重新绑定眼镜后触发。
-            from studio.auth import AuthPage, install_auth_variant
-            from studio.home_device import HomeDevicePage
-            install_auth_variant(android, android.context, 'debug')
-            android.ensure_foreground()
-            AuthPage(android).registered()
-            try:
-                HomeDevicePage(android).home()
-            except WaitTimeout:
-                if not FirmwareUpdatePage(android).has_startup_popup():
-                    raise
-        if not FirmwareUpdatePage(android).has_startup_popup():
-            _restart_app(android)
-        page = FirmwareUpdatePage(android)
-        try:
-            page.startup_popup(mandatory)
-        except AssertionError as exc:
-            if mandatory:
-                raise
-            raise AssertionError(
-                f'非强制升级弹窗未出现：{target["model"]} 的 {firmware} 固件，'
-                f'当前 {before}、目标 {target["version"]}、后台任务 {target["task_id"]}；'
-                f'已重装 APP、登录并重新绑定。原检查结果：{exc}') from None
-        def finish_notification():
-            clear_target(target['task_id'])
-            android.restart()
-        page.wait_for_completion(target["version"], before, direction, firmware=firmware,
-                                 after_outcome=finish_notification)
-    finally:
-        try:
-            clear_target(target["task_id"])
-        finally:
-            _restart_app(android)
-
-
 def test_bluetooth_firmware_update(android):
-    run(android, lambda: _manual_update(android, "bluetooth"))
+    run(android, lambda: manual_update(android, "bluetooth"))
 
 
 def test_wifi_firmware_update(android, request):
-    detail = run(android, lambda: _manual_update(android, "wifi"))
+    detail = run(android, lambda: manual_update(android, "wifi"))
     if detail:
         request.node.user_properties.append(('studio_detail', detail))
 
 
 def test_bluetooth_forced_update_on_start(android):
-    run(android, lambda: _startup_update(android, "bluetooth", mandatory=True), preserve_popup=True)
+    run(android, lambda: startup_update(android, "bluetooth", mandatory=True), preserve_popup=True)
 
 
 def test_wifi_optional_update_on_start(android):
-    run(android, lambda: _startup_update(android, "wifi", mandatory=False), preserve_popup=True)
+    run(android, lambda: startup_update(android, "wifi", mandatory=False), preserve_popup=True)

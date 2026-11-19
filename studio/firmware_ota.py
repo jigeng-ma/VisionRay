@@ -1,4 +1,4 @@
-"""G 系列固件 OTA 的前置处理、页面操作和版本校验。"""
+"""固件 OTA 的前置处理、页面操作和版本校验。"""
 
 from __future__ import annotations
 
@@ -6,14 +6,18 @@ import re
 import time
 from xml.etree import ElementTree as ET
 
-from .errors import TestBlocked
+from .errors import TestBlocked, WaitTimeout
 from .home_device import HomeDevicePage
 from .ota import OtaClient
 from .ota_targets import target_info
 
 
 TEST_TASKS = (164, 165, 171, 155)
-_MODEL_NAMES = {"G1": "DPVR G1", "G3": "DPVR G3", "G6": "DPVR G6", "G5": "DPVR G5"}
+_MODEL_NAMES = {"G1": "DPVR G1", "G3": "DPVR G3", "G6": "DPVR G6"}
+_FLOW_MODELS = {
+    'G7': ('Flow Pro Pilot', 'Flow Pro Crystal'),
+    'G5': ('Flow Echo Pilot', 'Flow Echo Crystal'),
+}
 
 
 def _numbers(version: str) -> tuple[int, ...]:
@@ -23,26 +27,38 @@ def _numbers(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in parts)
 
 
-def _target(android, firmware: str, direction: str) -> dict:
-    model = _MODEL_NAMES.get(android.context["config"].get("model"))
-    if android.context["config"].get("model") == "G7":
-        package = android.context['config']['package']
-        locator = (f"//*[@resource-id='{package}:id/tv_title' and @text='Model']/parent::*"
-                   f"//*[@resource-id='{package}:id/tv_hint']")
-        rows = []
-        for _ in range(5):
-            rows = [e for e in android.driver.find_elements('xpath', locator) if e.is_displayed()]
-            if rows:
-                break
-            size = android.driver.get_window_size()
-            android.driver.swipe(size['width'] // 2, int(size['height'] * .3),
-                                 size['width'] // 2, int(size['height'] * .8), 400)
-        if len(rows) != 1 or rows[0].text.strip() not in ('Flow Pro Pilot', 'Flow Pro Crystal'):
-            raise TestBlocked('G7 系统设置页未显示唯一的 Flow Pro Pilot/Crystal 型号。')
-        model = rows[0].text.strip()
+def _system_label_value(android, label):
+    package = android.context['config']['package']
+    locator = (f"//*[@resource-id='{package}:id/tv_title' and @text='{label}']/parent::*"
+               f"//*[@resource-id='{package}:id/tv_hint']")
+    for _ in range(5):
+        values = [e.text.strip() for e in android.driver.find_elements('xpath', locator)
+                  if e.is_displayed() and e.text.strip()]
+        if len(values) == 1:
+            return values[0]
+        if len(values) > 1:
+            break
+        size = android.driver.get_window_size()
+        android.driver.swipe(size['width'] // 2, int(size['height'] * .3),
+                             size['width'] // 2, int(size['height'] * .8), 400)
+    raise TestBlocked(f'系统设置页未显示唯一的 {label}。')
+
+
+def _firmware_model(android):
+    family = android.context['config'].get('model')
+    if family in _FLOW_MODELS:
+        model = _system_label_value(android, 'Model')
+        if model not in _FLOW_MODELS[family]:
+            raise TestBlocked(f'{family} 系统设置里的型号不受此 OTA 用例支持：{model}。')
         android.log('firmware-device-model', model)
+        return model
+    model = _MODEL_NAMES.get(family)
     if not model:
         raise TestBlocked("固件 OTA 仅支持已配置的 G1/G3/G6/G7/G5 型号。")
+    return model
+
+
+def _target(model: str, firmware: str, direction: str) -> dict:
     node = target_info(f"{model}.{firmware}.{direction}", "glasses")
     if not node["task_id"] or not node["version"]:
         raise TestBlocked(f"{model} {firmware} {direction} 的 OTA task_id 或实际版本尚未配置。")
@@ -53,6 +69,13 @@ def firmware_version(android, firmware='bluetooth') -> str:
     """从 System Settings 的对应固件行读取实际版本。"""
     page = HomeDevicePage(android)
     page.setting("System Settings")
+    if android.context['config'].get('model') == 'G5':
+        labels = {'bluetooth': 'Bluetooth Version', 'isp': 'ISP Version'}
+        if firmware not in labels:
+            raise TestBlocked(f'G5 固件类型不受支持：{firmware}。')
+        version = _system_label_value(android, labels[firmware])
+        android.log('firmware-version', {'firmware': firmware, 'version': version})
+        return version
     row_id = 'wifi_sw_version' if firmware == 'wifi' else 'firmware_version'
     locator = (f"//*[@resource-id='{page.package}:id/{row_id}']"
                f"//*[@resource-id='{page.package}:id/tv_hint']")
@@ -73,10 +96,19 @@ def firmware_version(android, firmware='bluetooth') -> str:
 def choose_target(android, firmware: str) -> tuple[str, dict, str]:
     """按当前实际版本决定本轮做升级或降级，避免重复推同一版本。"""
     current = firmware_version(android, firmware)
-    upgrade = _target(android, firmware, "upgrade")
-    downgrade = _target(android, firmware, "downgrade")
+    model = _firmware_model(android)
+    upgrade = _target(model, firmware, "upgrade")
+    downgrade = _target(model, firmware, "downgrade")
+    if model in _FLOW_MODELS['G5']:
+        _ota_task_ids(model)
     try:
-        direction = "upgrade" if _numbers(current) < _numbers(upgrade["version"]) else "downgrade"
+        if model in _FLOW_MODELS['G5']:
+            up, down, installed = map(_numbers, (upgrade['version'], downgrade['version'], current))
+            if up == down or installed not in (up, down):
+                raise TestBlocked(f'{model} {firmware} 当前版本 {current} 无法对应一组有效的 OTA 目标。')
+            direction = 'downgrade' if installed == up else 'upgrade'
+        else:
+            direction = 'upgrade' if _numbers(current) < _numbers(upgrade['version']) else 'downgrade'
     except ValueError as exc:
         raise TestBlocked(str(exc)) from exc
     target = upgrade if direction == "upgrade" else downgrade
@@ -183,16 +215,92 @@ def ensure_system_bluetooth_pairing(android) -> None:
         android.ensure_foreground()
 
 
-def prepare_target(task_id: int, mandatory: bool, model: str = 'DPVR G1') -> None:
-    """只上线本轮固件，并同步本轮是否强制升级。"""
-    client = OtaClient()
+def _ota_task_ids(model):
     firmware_types = ('bluetooth', 'isp') if model == 'DPVR G5' or model.startswith('Flow Echo ') else ('bluetooth', 'wifi')
     tasks = tuple(target_info(f'{model}.{kind}.{direction}', 'glasses')['task_id']
                   for kind in firmware_types for direction in ('upgrade', 'downgrade'))
-    if any(not task for task in tasks):
-        raise TestBlocked(f'{model} 固件 OTA 的四个 task_id 尚未配置完整。')
+    if any(task <= 0 for task in tasks) or len(set(tasks)) != len(tasks):
+        raise TestBlocked(f'{model} 固件 OTA 需配置四个不同的有效 task_id。')
+    return tasks
+
+
+def prepare_target(task_id: int, mandatory: bool, model: str = 'DPVR G1') -> None:
+    """只上线本轮固件，并同步本轮是否强制升级。"""
+    tasks = _ota_task_ids(model)
+    client = OtaClient()
     client.activate_only(task_id, tasks, apply=True)
     client.set_force(task_id, mandatory, apply=True)
+
+
+def manual_update(android, firmware):
+    FirmwareUpdatePage(android).dismiss_stale_startup_popup()
+    before, target, direction = choose_target(android, firmware)
+    ensure_system_bluetooth_pairing(android)
+    try:
+        prepare_target(target['task_id'], mandatory=False, model=target['model'])
+        page = FirmwareUpdatePage(android)
+        page.open()
+        page.start()
+        return page.wait_for_completion(target['version'], before, direction, firmware=firmware)
+    finally:
+        clear_target(target['task_id'])
+
+
+def _prepare_optional_startup(android, model):
+    from .auth import install_auth_variant
+    install_auth_variant(android, android.context, 'debug')
+    android.ensure_foreground()
+    from .preconditions import prepare_business
+    config = android.context['config']
+    pairing = config.get('pairing', {})
+    original = pairing.get('model_label')
+    if model in _FLOW_MODELS['G5']:
+        pairing['model_label'] = model
+    try:
+        prepare_business(android, force=True)
+        HomeDevicePage(android).home()
+    except WaitTimeout:
+        if not FirmwareUpdatePage(android).has_startup_popup():
+            raise
+    finally:
+        if model in _FLOW_MODELS['G5']:
+            pairing['model_label'] = original
+
+
+def startup_update(android, firmware, mandatory):
+    FirmwareUpdatePage(android).dismiss_stale_startup_popup()
+    before, target, direction = choose_target(android, firmware)
+    if mandatory:
+        ensure_system_bluetooth_pairing(android)
+    task_id = target['task_id']
+    try:
+        prepare_target(task_id, mandatory=mandatory, model=target['model'])
+        if not mandatory:
+            _prepare_optional_startup(android, target['model'])
+        if not FirmwareUpdatePage(android).has_startup_popup():
+            android.restart()
+        page = FirmwareUpdatePage(android)
+        try:
+            page.startup_popup(mandatory)
+        except AssertionError as exc:
+            if mandatory:
+                raise
+            raise AssertionError(
+                f'非强制升级弹窗未出现：{target["model"]} 的 {firmware} 固件，'
+                f'当前 {before}、目标 {target["version"]}、后台任务 {task_id}；'
+                f'已重装 APP、登录并重新绑定。原检查结果：{exc}') from None
+
+        def finish_notification():
+            clear_target(task_id)
+            android.restart()
+
+        return page.wait_for_completion(target['version'], before, direction, firmware=firmware,
+                                        after_outcome=finish_notification)
+    finally:
+        try:
+            clear_target(task_id)
+        finally:
+            android.restart()
 
 
 def clear_target(task_id: int) -> None:
@@ -324,8 +432,7 @@ class FirmwareUpdatePage:
             rows[0].click()
             try:
                 def opened():
-                    if any(e.is_displayed() for e in self.a.driver.find_elements(
-                            'xpath', "//*[contains(@text, 'Firmware is up to date')]")):
+                    if self._any_text(('Firmware is up to date',)):
                         raise AssertionError('APP 提示 Firmware is up to date；当前上线任务未被识别为可更新固件，请核对 OTA 后台版本和目标设备。')
                     return any(e.is_displayed() for resource in ('uof_btn', 'uof_version')
                                for e in self.a.driver.find_elements('id', self.package + ':id/' + resource))
@@ -347,11 +454,12 @@ class FirmwareUpdatePage:
         """验证启动弹窗；非强制弹窗的安装、登录、绑定前置由调用方保证。"""
         self.a.wait(self.has_startup_popup,
                     '固件更新启动弹窗', 20)
-        if mandatory:
-            cancel = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_cancel')
-                      if e.is_displayed()]
-            if cancel:
-                raise AssertionError("强制固件升级弹窗不应提供 Cancel。")
+        cancel = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_cancel')
+                  if e.is_displayed()]
+        if mandatory and cancel:
+            raise AssertionError("强制固件升级弹窗不应提供 Cancel。")
+        if not mandatory and self.a.context['config'].get('model') == 'G5' and len(cancel) != 1:
+            raise AssertionError('G5 非强制固件升级弹窗未显示唯一的 Cancel。')
         confirm = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('id', self.package + ':id/tv_confirm')
                                            if e.is_displayed() and e.text.strip() in ('Update Now', 'Update')), None),
                               '固件更新弹窗确认按钮', 10)
@@ -407,6 +515,8 @@ class FirmwareUpdatePage:
                 self.a.log('firmware-success', 'confirmed Updated Complete')
         if after_outcome:
             after_outcome()
+        if outcome == 'failed' and direction == 'upgrade':
+            raise AssertionError(f'{firmware} 升级失败；APP 提示：{failure_message}。')
         try:
             actual = firmware_version(self.a, firmware)
         except Exception as exc:
@@ -416,10 +526,20 @@ class FirmwareUpdatePage:
         if _numbers(actual) != _numbers(expected):
             reason = f'；APP 提示：{failure_message}' if failure_message else ''
             raise AssertionError(f"固件更新{outcome}{reason}；版本未达到目标：期望 {expected}，实际 {actual}。")
-        if direction == "upgrade" and _numbers(actual) <= _numbers(before):
+        is_g5 = self.a.context['config'].get('model') == 'G5'
+        if is_g5 and _numbers(actual) == _numbers(before):
+            raise AssertionError(f'G5 {firmware} OTA 前后版本相同：{before}。')
+        if not is_g5 and direction == "upgrade" and _numbers(actual) <= _numbers(before):
             raise AssertionError(f"升级后版本未高于更新前：{before} -> {actual}。")
-        if direction == "downgrade" and _numbers(actual) >= _numbers(before):
+        if not is_g5 and direction == "downgrade" and _numbers(actual) >= _numbers(before):
             raise AssertionError(f"降级后版本未低于更新前：{before} -> {actual}。")
         if direction == 'downgrade' and outcome == 'failed':
-            return (f'APP提示OTA失败，但检查版本已从{before}降到{actual}版本，'
-                    '判定降级成功，忽略异常提示')
+            return (f'{firmware} 降级实际版本 {before} → {actual}（目标 {expected}），判定 Passed。'
+                    f'备注：APP 提示 OTA 失败（{failure_message}），但实际版本已达到降级目标；'
+                    '后台任务配置是否异常待人工核对。')
+        if is_g5:
+            if outcome != 'success':
+                reason = f' APP 提示：{failure_message}。' if failure_message else ''
+                raise AssertionError(f'G5 {firmware} OTA 未显示更新成功，实际版本 {before} → {actual}。{reason}')
+            label = 'BT' if firmware == 'bluetooth' else 'ISP'
+            return f'{label} 固件 {before} → {actual}（目标 {expected}）'

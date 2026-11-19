@@ -1,4 +1,5 @@
 """G 系列配对页面；仅由真实断言决定用例结果。"""
+import re
 import time
 from .errors import TestBlocked, WaitTimeout
 
@@ -7,11 +8,22 @@ class BindingReturnedToModels(AssertionError):
     pass
 
 
+def discovery_panel(android):
+    config = android.context['config']
+    if config.get('model') != 'G5':
+        return None
+    panels = [item for item in android.driver.find_elements('id', config['package'] + ':id/discovery_panel')
+              if item.is_displayed()]
+    return panels[0] if len(panels) == 1 else None
+
+
 class PairingPage:
     def __init__(self, android):
         self.a = android
         self.options = android.context['config']['pairing']
         self._binding_failed_seen = False
+        self.require_model_list = False
+        self.clear_bound_g5 = False
 
     def _swipe_models(self, upward):
         try:
@@ -51,15 +63,20 @@ class PairingPage:
             if after == before:
                 break
 
-    def enable_g_series_models(self):
+    def enable_g_series_models(self, *, open_models=None, close_models=None):
         """按新版 UI 的隐藏入口启用 G1/G3/G6 型号。"""
         a = self.a
         package = a.context['config']['package']
         # 隐藏入口是开关；先检查，避免下一条配对用例把已显示的型号再次隐藏。
-        self.open_model_list()
+        def close_empty_models():
+            a.driver.press_keycode(4)
+            a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
+
+        open_models = open_models or self.open_model_list
+        close_models = close_models or close_empty_models
+        open_models()
         names = self._model_names()
-        a.driver.press_keycode(4)
-        a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
+        close_models()
         if {'DPVR G1', 'DPVR G3', 'DPVR G6'} <= names:
             a.log('enable-g-series-models', 'already visible')
             return
@@ -81,13 +98,10 @@ class PairingPage:
                    '从 About App 返回我的页面', 12)
             tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
             tabs[0].click()
-            a.wait(lambda: a.find('pair.add'), '返回 Add Device 首页', 12)
-            a.click('pair.add')
-            a.element('pair.models_title', 12)
+            open_models()
             names = self._model_names()
             a.log('enable-g-series-models', {'attempt': attempt, 'visible': sorted(names)})
-            a.driver.press_keycode(4)
-            a.wait(lambda: a.find('pair.add'), '从型号页返回 Add Device 首页', 12)
+            close_models()
             if {'DPVR G1', 'DPVR G3', 'DPVR G6'} <= names:
                 return
         raise TestBlocked('连续 3 次开启隐藏型号后仍未显示 DPVR G1/G3/G6；最后可选：' +
@@ -99,13 +113,18 @@ class PairingPage:
         package = a.context['config']['package']
         self.ensure_english_from_home()
         a.click('pair.add')
-        destination = a.wait(lambda: 'models' if a.find('pair.models_title') else
+        destination = a.wait(lambda: 'discovery' if discovery_panel(a) is not None else
+                             ('models' if a.find('pair.models_title') else
                              ('login' if any(e.is_displayed() for e in a.driver.find_elements(
-                                 'id', package + ':id/tv_login_by_email')) else None),
+                                 'id', package + ':id/tv_login_by_email')) else None)),
                              '型号列表或登录入口', 12)
+        if destination == 'discovery':
+            return
         if destination == 'login':
             from .auth import AuthPage
-            AuthPage(a).registered()
+            AuthPage(a).login_for_pairing()
+            if discovery_panel(a) is not None or a.find('pair.models_title'):
+                return
             tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
             if not tabs:
                 raise TestBlocked('登录后未找到首页导航，无法返回 Add Device。')
@@ -136,7 +155,8 @@ class PairingPage:
                 raise TestBlocked('APP 为中文，但未找到“关于App”语言设置入口。')
             about.click()
             language = a.wait(lambda: next((e for e in a.driver.find_elements('xpath',
-                f'//*[@package="{package}" and @text="语言"]') if e.is_displayed()), None),
+                f'//*[@resource-id="{package}:id/language" or '
+                f'(@package="{package}" and @text="语言")]') if e.is_displayed()), None),
                 '关于App中的语言入口', 12)
             language.click()
             english = a.wait(lambda: next((e for e in a.driver.find_elements('xpath',
@@ -208,7 +228,7 @@ class PairingPage:
         raise TestBlocked('当前 APP 型号列表未提供 ' + ' / '.join(sorted(labels)) + '；实际可选：' +
                           ('、'.join(available) if available else '无'))
 
-    def prepare_search(self):
+    def prepare_add_device(self):
         a = self.a
         a.ensure_foreground()
         # APP 可能保留在上一条的搜索弹窗、相册等二级页；先回到可识别入口。
@@ -236,24 +256,65 @@ class PairingPage:
             # 配对用例必须能够独立运行。已绑定不是外部阻塞条件，先走 APP 的
             # 正常解绑流程，再重新识别 Add Device 首页。
             from .home_device import HomeDevicePage
-            HomeDevicePage(a).unbind()
-            a.wait(lambda: a.find('pair.add'), '自动解绑后显示 Add Device 首页', 20)
+            page = HomeDevicePage(a)
+            if self.clear_bound_g5:
+                remaining = True
+                removed = set()
+                while remaining:
+                    page.home(require_target=False)
+                    names = page._bound_names()
+                    if len(names) != 1 or names[0] in removed or not re.fullmatch(
+                            a.context['config']['name_pattern'], names[0], re.I):
+                        raise TestBlocked(f'配对前无法安全清理当前 G5 绑定：首页显示 {names}。')
+                    removed.add(names[0])
+                    remaining = page.unbind(require_empty=False, allow_discovery=True)
+            elif a.context['config'].get('model') == 'G5':
+                page.unbind(allow_discovery=True)
+            else:
+                page.unbind()
+            a.wait(lambda: discovery_panel(a) is not None or a.find('pair.add'), '自动解绑后显示添加设备入口', 20)
             # APP 在刚解绑后立即重绑会显示“Please wait a minute and retry”。
             a.log('pair-cooldown', '解绑后等待 60 秒再搜索')
             time.sleep(60)
+            a.ensure_foreground()
+            a.wait(lambda: discovery_panel(a) is not None or a.find('pair.add'), '解绑等待后恢复添加设备入口', 20)
         a.capture('unbound-home')
-        if a.context['config'].get('product') == 'G系列':
-            self.enable_g_series_models()
-        self.open_model_list()
+
+    def prepare_model_search(self):
+        a = self.a
+        if discovery_panel(a) is None and not (self.require_model_list and a.find('pair.models_title')):
+            self.prepare_add_device()
+            if discovery_panel(a) is None:
+                if a.context['config'].get('product') == 'G系列':
+                    self.enable_g_series_models()
+                self.open_model_list()
+        if discovery_panel(a) is not None:
+            if not self.require_model_list:
+                return
+            self.cancel_discovery()
+            if not a.find('pair.models_title'):
+                self.open_model_list()
+            if discovery_panel(a) is not None:
+                a.capture('expected-model-list-got-discovery')
+                raise AssertionError('取消附近设备后再次点击 Add Device，APP 仍打开附近设备，未显示型号选择页。')
         self.select_model(self.options['model_label'], retry=False)
         a.element('pair.prepare_title')
         a.capture('pairing-ready')
+
+    def prepare_search(self):
+        a = self.a
+        self.prepare_model_search()
+        if discovery_panel(a) is not None:
+            a.capture('search-started')
+            return
         a.click('pair.next')
         a.wait(lambda:a.find('pair.searching') or a.find('pair.results'), '搜索弹窗', 12)
         a.capture('search-started')
 
     def bind(self):
         a = self.a
+        if discovery_panel(a) is not None:
+            return self.bind_discovered()
         name = a.context['glasses_name']
         pairing_prompts_before = a.popups.pairing_accepted
         last_scroll = 0.0
@@ -329,6 +390,76 @@ class PairingPage:
         finally:
             a.popups.pairing_active = False
 
+    def center_discovered(self, name):
+        a = self.a
+        package = a.context['config']['package']
+        moves = 0
+        last_move = 0.0
+
+        def centered_target():
+            nonlocal moves, last_move
+            panel = discovery_panel(a)
+            if panel is None:
+                return None
+            carousel = panel.find_elements('id', package + ':id/device_carousel')
+            names = [item for item in panel.find_elements('id', package + ':id/device_name')
+                     if item.is_displayed() and item.text == name]
+            if len(names) > 1:
+                raise TestBlocked(f'附近设备列表中有多台同名眼镜：{name}。')
+            if len(carousel) != 1:
+                return None
+            rect = carousel[0].rect
+            center = rect['x'] + rect['width'] / 2
+            if names:
+                position = names[0].rect
+                offset = position['x'] + position['width'] / 2 - center
+                if abs(offset) < rect['width'] * .12:
+                    return panel
+            if moves < 10 and time.monotonic() - last_move >= 1:
+                leftward = offset > 0 if names else moves < 5
+                left = int(rect['x'] + rect['width'] * .20)
+                right = int(rect['x'] + rect['width'] * .80)
+                y = int(rect['y'] + rect['height'] * .45)
+                a.driver.swipe(right if leftward else left, y, left if leftward else right, y, 420)
+                moves += 1
+                last_move = time.monotonic()
+                a.log('pair-discovery-swipe', {'direction': 'left' if leftward else 'right', 'target': name})
+            return None
+
+        return a.wait(centered_target, '搜索目标眼镜 ' + name, self.options['search_timeout'])
+
+    def bind_discovered(self, before_pair=None):
+        a = self.a
+        name = a.context['glasses_name']
+        self.center_discovered(name)
+        a.capture('target-found')
+        panel = self.center_discovered(name)
+        if before_pair:
+            before_pair(panel)
+            self.center_discovered(name)
+        button = self.discovery_action('pair', 'Pair')
+        prompts_before = a.popups.pairing_accepted
+        a.popups.pairing_active = True
+        try:
+            button.click()
+            a.log('bind', name)
+            self.finish_binding(prompts_before)
+        finally:
+            a.popups.pairing_active = False
+
+    def discovery_action(self, resource, label):
+        panel = discovery_panel(self.a)
+        assert panel is not None, '当前未显示附近设备弹窗。'
+        package = self.a.context['config']['package']
+        buttons = [item for item in panel.find_elements('id', package + ':id/' + resource)
+                   if item.is_displayed() and item.is_enabled() and item.text == label]
+        assert len(buttons) == 1, f'附近设备弹窗未显示唯一可用的 {label}。'
+        return buttons[0]
+
+    def cancel_discovery(self):
+        self.discovery_action('cancel', 'Cancel').click()
+        self.a.wait(lambda: discovery_panel(self.a) is None, '附近设备弹窗消失', 15)
+
 
     def finish_binding(self, pairing_prompts_before=0):
         a = self.a
@@ -379,6 +510,9 @@ class PairingPage:
         a = self.a
         if a.driver.current_activity != self.options['home_activity'] or not a.find('pair.home_title'):
             return False
+        if a.context['config'].get('model') == 'G5':
+            from .home_device import HomeDevicePage
+            return HomeDevicePage(a)._bound_names().count(a.context['glasses_name']) == 1
         matches = [e for e in a.driver.find_elements('id', self.options['device_name_id'])
                    if e.is_displayed() and e.text == a.context['glasses_name']]
         return len(matches) == 1

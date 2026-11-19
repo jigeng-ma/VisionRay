@@ -1,9 +1,13 @@
-"""G1/G3/G6/G7 调试页媒体命令。每次调用只点击一次，不自动重发。"""
+"""眼镜调试页媒体命令。每次调用只点击一次，不自动重发。"""
 import time
 import math
 import re
 from .errors import TestBlocked
 from .home_device import HomeDevicePage
+
+
+class DurationSettingMissing(TestBlocked):
+    pass
 
 
 class BleMediaCommands:
@@ -20,8 +24,8 @@ class BleMediaCommands:
     def __init__(self, android):
         config = android.context['config']
         if (config.get('product'), config.get('model')) not in (
-                ('G系列', 'G1'), ('G系列', 'G3'), ('G系列', 'G6'), ('G7', 'G7')):
-            raise TestBlocked('BLE 媒体命令仅适用于 G1/G3/G6/G7。')
+                ('G系列', 'G1'), ('G系列', 'G3'), ('G系列', 'G6'), ('G7', 'G7'), ('G5', 'G5')):
+            raise TestBlocked('BLE 媒体命令仅适用于 G1/G3/G6/G7/G5。')
         self.a = android
         self.package = config['package']
         self._last_click_at = None
@@ -67,6 +71,7 @@ class BleMediaCommands:
             if a.driver.current_activity == self.ACTIVITY:
                 break
             for _ in range(6):
+                a.popups.handle()
                 tabs = [e for e in a.driver.find_elements('id', self.package + ':id/tabIcon')
                         if e.is_displayed()]
                 if tabs:
@@ -91,14 +96,17 @@ class BleMediaCommands:
         required = ((self.BUTTONS[action],) if action else tuple(self.BUTTONS.values()))
         if not all(self._find(resource) for resource, _ in required):
             size = a.driver.get_window_size()
+            scroll = self._find('sv') if a.context['config'].get('model') in ('G5', 'G7') else None
+            area = scroll.rect if scroll else {'x': 0, 'y': 0, **size}
             # 长调试页可能保留上次滚动位置。拍照入口在录像入口上方，
             # 先回到顶部再向下搜索，避免只往下滑而误报按钮缺失。
             for start, end in ((.30, .78), (.78, .30)):
                 for _ in range(5):
                     if all(self._find(resource) for resource, _ in required):
                         break
-                    a.driver.swipe(int(size['width'] * .5), int(size['height'] * start),
-                                   int(size['width'] * .5), int(size['height'] * end), 600)
+                    x = int(area['x'] + area['width'] * .5)
+                    a.driver.swipe(x, int(area['y'] + area['height'] * start),
+                                   x, int(area['y'] + area['height'] * end), 600)
                 if all(self._find(resource) for resource, _ in required):
                     break
         if not all(self._find(resource) for resource, _ in required):
@@ -154,7 +162,7 @@ class BleMediaCommands:
             size = self.a.driver.get_window_size()
             self.a.driver.swipe(int(size['width']*.5), int(size['height']*.78),
                                 int(size['width']*.5), int(size['height']*.3), 500)
-        raise TestBlocked('未找到时长设置：' + label)
+        raise DurationSettingMissing('未找到时长设置：' + label)
 
     def _read_duration(self, label):
         hints = self._duration_row(label).find_elements('id', self.package + ':id/tv_hint')
@@ -171,7 +179,15 @@ class BleMediaCommands:
         if self.a.find('pair.add'):
             raise TestBlocked('请先连接目标眼镜，再校验录制时长。')
         HomeDevicePage(self.a).setting(page)
-        current = self._read_duration(label)
+        try:
+            current = self._read_duration(label)
+        except DurationSettingMissing:
+            if self.a.context['config']['model'] != 'G5' or kind != 'audio' or duration != 15:
+                raise
+            # G5 的系统设置没有录音时长，但调试页可手动开始和停止短录音。
+            self.a.log('ble-duration', {'kind': kind, 'requested_seconds': duration,
+                                        'limit_seconds': None, 'changed': False})
+            return
         if current is not None and current >= duration:
             self.a.log('ble-duration', {'kind': kind, 'limit_seconds': current, 'changed': False})
             return
@@ -210,7 +226,7 @@ class BleMediaCommands:
                 # 只读保活，避免长录制超过 Appium newCommandTimeout。
                 _ = self.a.driver.current_package
 
-    def _record(self, kind, count, duration):
+    def _record(self, kind, count, duration, *, before_start=None):
         self._count(count)
         maximum = 720 if kind == 'video' else 7200
         if (isinstance(duration, bool) or not isinstance(duration, (int, float))
@@ -218,6 +234,8 @@ class BleMediaCommands:
             raise ValueError(f'duration 必须大于 0 且不超过 {maximum} 秒。')
         self._ensure_duration(kind, duration)
         for index in range(count):
+            if before_start is not None:
+                before_start()
             self._click('start_' + kind)
             try:
                 self._hold(duration)
@@ -230,9 +248,9 @@ class BleMediaCommands:
             if index + 1 < count:
                 time.sleep(1)
 
-    def record_video(self, count=1, duration=15):
+    def record_video(self, count=1, duration=15, *, before_start=None):
         """录像 count 次，每次 duration 秒，最大 720 秒。"""
-        self._record('video', count, duration)
+        self._record('video', count, duration, before_start=before_start)
 
     def record_audio(self, count=1, duration=15):
         """录音 count 次，每次 duration 秒，最大 7200 秒。"""

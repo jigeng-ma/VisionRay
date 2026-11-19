@@ -35,6 +35,7 @@ class FirmwareRecoveryTests(unittest.TestCase):
 
 def test_firmware_entry_clicks_whole_row_and_confirms_page_transition():
     android = Mock(context={'config': {'package': 'test.app'}})
+    android.driver.page_source = '<hierarchy/>'
     android.driver.get_window_size.return_value = {'width': 1080, 'height': 2340}
     row = Mock()
     row.is_displayed.return_value = True
@@ -47,9 +48,7 @@ def test_firmware_entry_clicks_whole_row_and_confirms_page_transition():
             return [row]
         if value.endswith(':id/uof_version'):
             return [Mock()] if screen['update'] else []
-        if by == 'xpath' and 'Firmware is up to date' in value:
-            return []
-        if by == 'xpath':
+        if by == 'xpath' and 'Firmware is up to date' not in value:
             labels = ['Firmware Update'] if screen['update'] else ['Basic Information', 'Firmware Update']
             return [Mock(text=label, is_displayed=Mock(return_value=True)) for label in labels]
         return []
@@ -72,6 +71,46 @@ def test_wifi_version_reads_wifi_row_instead_of_bluetooth_row():
     android.log.assert_called_once_with('firmware-version', {'firmware': 'wifi', 'version': '1.00.29'})
 
 
+def test_g5_reads_separate_bt_and_isp_versions_and_uses_app_model():
+    from studio.firmware_ota import _firmware_model
+
+    android = Mock(context={'config': {'package': 'test.app', 'model': 'G5'}})
+    rows = {'Bluetooth Version': '2.0.2', 'ISP Version': '1.3.6', 'Model': 'Flow Echo Crystal'}
+    android.driver.find_elements.side_effect = lambda _, locator: [
+        Mock(text=value) for label, value in rows.items() if f"@text='{label}'" in locator]
+    with patch('studio.firmware_ota.HomeDevicePage'):
+        assert firmware_version(android, 'bluetooth') == '2.0.2'
+        assert firmware_version(android, 'isp') == '1.3.6'
+        assert _firmware_model(android) == 'Flow Echo Crystal'
+
+
+def test_g5_isp_uses_configured_directions_for_descending_upgrade_version():
+    from studio.firmware_ota import choose_target
+
+    android = Mock()
+    upgrade = {'version': '1.3.6', 'task_id': 174}
+    downgrade = {'version': '3.3.7', 'task_id': 173}
+    with patch('studio.firmware_ota._firmware_model', return_value='Flow Echo Crystal'), \
+         patch('studio.firmware_ota._ota_task_ids'), \
+         patch('studio.firmware_ota._target', side_effect=[upgrade, downgrade, upgrade, downgrade]), \
+         patch('studio.firmware_ota.firmware_version', side_effect=['1.3.6', '3.3.7']):
+        assert choose_target(android, 'isp') == ('1.3.6', downgrade, 'downgrade')
+        assert choose_target(android, 'isp') == ('3.3.7', upgrade, 'upgrade')
+
+
+def test_g5_pilot_and_crystal_share_all_four_ota_tasks():
+    from studio.firmware_ota import _ota_task_ids, _target
+
+    assert _ota_task_ids('Flow Echo Pilot') == _ota_task_ids('Flow Echo Crystal') == (175, 176, 174, 173)
+    for kind in ('bluetooth', 'isp'):
+        for direction in ('upgrade', 'downgrade'):
+            pilot = _target('Flow Echo Pilot', kind, direction)
+            crystal = _target('Flow Echo Crystal', kind, direction)
+            assert pilot['model'] == 'Flow Echo Pilot'
+            assert pilot['task_id'] == crystal['task_id']
+            assert pilot['version'] == crystal['version']
+
+
 def test_disconnected_update_fails_immediately_with_clear_reason():
     android = Mock(context={'config': {'package': 'test.app'}})
     android.driver.page_source = ('<hierarchy><node package="test.app" '
@@ -89,8 +128,37 @@ def test_failed_popup_with_completed_wifi_downgrade_returns_pass_detail():
          patch('studio.firmware_ota.firmware_version', return_value='1.00.28'):
         detail = FirmwareUpdatePage(android).wait_for_completion(
             '1.00.28', '1.00.29', 'downgrade', firmware='wifi')
-    assert detail == ('APP提示OTA失败，但检查版本已从1.00.29降到1.00.28版本，'
-                      '判定降级成功，忽略异常提示')
+    assert '判定 Passed' in detail and '后台任务配置' in detail
+    assert '1.00.29 → 1.00.28' in detail
+
+
+def test_g5_isp_failed_downgrade_uses_configured_target_not_version_order():
+    android = Mock(context={'config': {'package': 'test.app', 'model': 'G5'}})
+    android.driver.find_elements.return_value = []
+    with patch.object(FirmwareUpdatePage, '_any_text', side_effect=[False, True]), \
+         patch('studio.firmware_ota.firmware_version', return_value='3.3.7'):
+        detail = FirmwareUpdatePage(android).wait_for_completion(
+            '3.3.7', '1.3.6', 'downgrade', firmware='isp')
+    assert '判定 Passed' in detail and '1.3.6 → 3.3.7' in detail
+
+
+def test_failed_upgrade_is_not_passed_by_matching_actual_version():
+    android = Mock(context={'config': {'package': 'test.app', 'model': 'G5'}})
+    android.driver.find_elements.return_value = []
+    with patch.object(FirmwareUpdatePage, '_any_text', side_effect=[False, True]), \
+         patch('studio.firmware_ota.firmware_version', return_value='2.0.2') as read:
+        with unittest.TestCase().assertRaisesRegex(AssertionError, '升级失败'):
+            FirmwareUpdatePage(android).wait_for_completion('2.0.2', '2.0.1', 'upgrade')
+    read.assert_not_called()
+
+
+def test_failed_downgrade_with_wrong_actual_version_stays_failed():
+    android = Mock(context={'config': {'package': 'test.app', 'model': 'G5'}})
+    android.driver.find_elements.return_value = []
+    with patch.object(FirmwareUpdatePage, '_any_text', side_effect=[False, True]), \
+         patch('studio.firmware_ota.firmware_version', return_value='2.0.2'):
+        with unittest.TestCase().assertRaisesRegex(AssertionError, '版本未达到目标'):
+            FirmwareUpdatePage(android).wait_for_completion('2.0.1', '2.0.2', 'downgrade')
 
 
 def test_wifi_case_records_pass_detail():
@@ -148,29 +216,31 @@ def test_system_bluetooth_pairs_only_the_exact_selected_glasses():
 
 
 def test_forced_ota_clears_backend_and_restarts_after_popup_failure():
-    from cases.g_series.test_firmware_ota import _startup_update
+    from studio.firmware_ota import startup_update
     android = Mock()
-    with patch('cases.g_series.test_firmware_ota.choose_target', return_value=('2.00.05', {'task_id': 155, 'version': '2.00.04', 'model': 'DPVR G1'}, 'downgrade')), \
-         patch('cases.g_series.test_firmware_ota.ensure_system_bluetooth_pairing'), \
-         patch('cases.g_series.test_firmware_ota.prepare_target'), \
-         patch('cases.g_series.test_firmware_ota.clear_target') as clear, \
-         patch('cases.g_series.test_firmware_ota.FirmwareUpdatePage') as page:
+    target = {'task_id': 155, 'version': '2.00.04', 'model': 'DPVR G1'}
+    with patch('studio.firmware_ota.choose_target', return_value=('2.00.05', target, 'downgrade')), \
+         patch('studio.firmware_ota.ensure_system_bluetooth_pairing'), \
+         patch('studio.firmware_ota.prepare_target'), \
+         patch('studio.firmware_ota.clear_target') as clear, \
+         patch('studio.firmware_ota.FirmwareUpdatePage') as page:
         page.return_value.startup_popup.side_effect = AssertionError('popup missing')
         with unittest.TestCase().assertRaisesRegex(AssertionError, 'popup missing'):
-            _startup_update(android, 'bluetooth', mandatory=True)
+            startup_update(android, 'bluetooth', mandatory=True)
     clear.assert_called_once_with(155)
     android.restart.assert_called_once_with()
 
 
 def test_forced_ota_clears_backend_even_when_setup_fails():
-    from cases.g_series.test_firmware_ota import _startup_update
+    from studio.firmware_ota import startup_update
     android = Mock(context={'config': {'package': 'test.app'}})
-    with patch('cases.g_series.test_firmware_ota.choose_target', return_value=('2.00.05', {'task_id': 155, 'model': 'DPVR G1'}, 'downgrade')), \
-         patch('cases.g_series.test_firmware_ota.ensure_system_bluetooth_pairing'), \
-         patch('cases.g_series.test_firmware_ota.prepare_target', side_effect=RuntimeError('setup failed')), \
-         patch('cases.g_series.test_firmware_ota.clear_target') as clear, \
-         patch('cases.g_series.test_firmware_ota.FirmwareUpdatePage'):
+    target = {'task_id': 155, 'model': 'DPVR G1'}
+    with patch('studio.firmware_ota.choose_target', return_value=('2.00.05', target, 'downgrade')), \
+         patch('studio.firmware_ota.ensure_system_bluetooth_pairing'), \
+         patch('studio.firmware_ota.prepare_target', side_effect=RuntimeError('setup failed')), \
+         patch('studio.firmware_ota.clear_target') as clear, \
+         patch('studio.firmware_ota.FirmwareUpdatePage'):
         with unittest.TestCase().assertRaisesRegex(RuntimeError, 'setup failed'):
-            _startup_update(android, 'bluetooth', mandatory=True)
+            startup_update(android, 'bluetooth', mandatory=True)
     clear.assert_called_once_with(155)
     android.restart.assert_called_once_with()

@@ -12,6 +12,9 @@ TARGET_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "ota_versions.
 def target_info(target: str, group: str, config_path: Path = TARGET_CONFIG) -> dict:
     parser = configparser.ConfigParser()
     parser.read(config_path, encoding="utf-8")
+    model, separator, firmware = target.partition('.')
+    if group == 'glasses' and model == 'Flow Echo Pilot' and separator:
+        target = 'Flow Echo Crystal.' + firmware
     section = '.'.join(part for part in (group, target) if part)
     if section not in parser:
         raise ValueError(f"配置未找到目标区段 [{section}]。")

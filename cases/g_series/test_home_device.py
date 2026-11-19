@@ -42,7 +42,19 @@ def test_restart_reconnect(android, adb): page(android).restart_and_reconnect(ad
 @requires_home
 def test_translation(android): p=page(android); p.card('Translation'); p.assert_page('Translation', 'Chat')
 @requires_home
-def test_recorder(android): p=page(android); p.card('Recorder'); p.text('Recorder', 15)
+def test_recorder(android):
+    p = page(android)
+    p.card('Recorder')
+    if android.context['config'].get('model') != 'G5':
+        p.text('Recorder', 15)
+        return
+    def recorder_opened():
+        titles = android.driver.find_elements('id', p.package + ':id/list_title')
+        if any(title.is_displayed() and title.text == 'Recording Minutes' for title in titles):
+            return True
+        return not android.find('pair.home_title') and any(item.is_displayed() for item in android.driver.find_elements(
+            'xpath', f"//*[@package='{p.package}' and @text='Recorder']"))
+    android.wait(recorder_opened, '录音列表 Recording Minutes', 15)
 @requires_home
 def test_dp_ai_card(android):
     p=page(android); p.card('DP AI'); p.text('DP AI', 15)
