@@ -12,7 +12,7 @@ from xml.etree import ElementTree as ET
 
 from .ble_commands import BleMediaCommands
 from .devices import Adb
-from .errors import TestBlocked
+from .errors import TestBlocked, WaitTimeout
 from .gallery import GalleryPage
 from .settings import SettingsPage
 
@@ -75,38 +75,28 @@ class G7Page:
         return [e for e in self.d.find_elements('id', self.package + ':id/' + resource)
                 if e.is_displayed() and e.text.strip()]
 
-    @staticmethod
-    def seconds(label):
-        match = re.fullmatch(r'\s*(\d+)\s*(min|minute|minutes|s|sec|seconds|秒|分钟)\s*', label, re.I)
-        if not match:
-            raise AssertionError(f'无法识别录像时长选项：{label}。')
-        return int(match[1]) * (60 if match[2].lower() in ('min', 'minute', 'minutes', '分钟') else 1)
-
-    def option_texts(self, row_labels):
-        self.text(*row_labels).click()
+    def _open_option(self, row_labels):
         resource = 'tvContent' if 'Video Specs' in row_labels else 'tv_label'
-        self.a.wait(lambda: self._options(resource), '录像设置选项', 10)
-        values = []
-        for _ in range(12):
-            visible = [e.text.strip() for e in self._options(resource)]
-            new = [value for value in visible if value not in values]
-            values.extend(new)
-            if not new:
-                break
-            self._swipe_options()
-        if resource == 'tvContent':
-            values = [value for value in values if re.search(r'\d{3,4}\s*[x×*]\s*\d{3,4}', value)]
-        if not values:
-            raise AssertionError(f'{row_labels} 没有可读取的选项：{self.visible_texts()}。')
-        self.d.press_keycode(4)
-        self.text(*row_labels)
-        return values
+        row_id = 'settingItemVideoSpecs' if resource == 'tvContent' else 'video_duration'
+        for attempt in range(3):
+            if attempt == 2:
+                self.capture()
+            row = self.text(*row_labels)
+            containers = [e for e in self.d.find_elements('id', self.package + ':id/' + row_id)
+                          if e.is_displayed() and e.is_enabled()]
+            target = row if attempt == 1 or len(containers) != 1 else containers[0]
+            target.click()
+            try:
+                self.a.wait(lambda: self._options(resource), '录像设置选项', 5)
+                return resource
+            except WaitTimeout:
+                pass
+            self.a.log('g7-option-open-retry', {'row': row_labels, 'attempt': attempt + 1})
+        self.a.capture('g7-option-popup-not-open')
+        raise AssertionError(f'点击录像设置后选项弹窗未打开：{row_labels}。')
 
     def choose_option(self, row_labels, option_pattern):
-        row = self.text(*row_labels)
-        row.click()
-        resource = 'tvContent' if 'Video Specs' in row_labels else 'tv_label'
-        self.a.wait(lambda: self._options(resource), '录像设置选项', 10)
+        resource = self._open_option(row_labels)
         chosen = None
         for _ in range(12):
             options = self._options(resource)

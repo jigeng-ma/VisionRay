@@ -23,6 +23,12 @@ PASSWORD = (AUTH['password'] if EMAIL == AUTH['account']
 def install_auth_variant(android, context, variant):
     """为 Google 登录用例全新安装指定版本，并核对手机上的实际版本。"""
     from .pgyer import OVERSEAS_DOWNLOAD_PAGE, download, install, resolve_build
+    from .home_device import HomeDevicePage
+    try:
+        HomeDevicePage(android).unbind()
+    except (TestBlocked, WaitTimeout) as exc:
+        # 尚在登录页等无法确认绑定状态时，按整轮安装的既有规则继续卸载。
+        android.log('auth-reinstall-unbind-unconfirmed', str(exc))
     version = context['app_version'] if variant == 'debug' else context['app_version'].removesuffix('-debug')
     path = ROOT / 'work' / 'downloads' / f'VisionRay-{version}.apk'
     apk = download(resolve_build(OVERSEAS_DOWNLOAD_PAGE, version, None, variant), path)

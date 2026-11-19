@@ -59,6 +59,6 @@ class MultiModelTests(unittest.TestCase):
         entries = registry(ROOT, 'G7')
         cases = [{'sheet': 'G7', 'id': case_id, 'row': row} for row, case_id in
                  [(2, 'PAIR_004'), (4, 'UG_001'), (5, 'UG_002'),
-                  (6, 'UG_003'), (58, 'Cam_007'), (70, 'F-OTA_001')]]
+                  (6, 'UG_003'), (58, 'Cam_008'), (70, 'F-OTA_001')]]
         self.assertEqual([case['id'] for case in ordered_plan(cases, ['G7'], entries)],
                          [case['id'] for case in cases])

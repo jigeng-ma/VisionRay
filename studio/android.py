@@ -29,14 +29,16 @@ class Android:
         try:
             self.driver = webdriver.Remote(config['appium_url'], options=options)
         except WebDriverException as exc:
-            if 'The Android SDK root folder' in (exc.msg or '') and 'does not exist' in (exc.msg or ''):
+            sdk_error = (exc.msg or '')
+            if (('The Android SDK root folder' in sdk_error and 'does not exist' in sdk_error) or
+                    'Neither ANDROID_HOME nor ANDROID_SDK_ROOT environment variable was exported' in sdk_error):
                 from .service import restart_stale_sdk
                 try:
                     restart_stale_sdk(Path(__file__).resolve().parents[1])
                     self.driver = webdriver.Remote(config['appium_url'], options=options)
                 except Exception as retry_exc:
                     raise RuntimeError(
-                        'Appium 使用了已失效的 Android SDK 路径；自动重启后仍未建立会话。'
+                        'Appium 服务缺少有效 Android SDK 环境；自动重启后仍未建立会话。'
                         '请重新运行 setup_environment.cmd。'
                         f' 首次错误：{exc.msg}；重试错误：{retry_exc}'
                     ) from retry_exc

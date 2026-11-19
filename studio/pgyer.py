@@ -7,6 +7,7 @@ from html import unescape
 from http.cookiejar import CookieJar
 import json
 import re
+import ssl
 import subprocess
 import time
 import zipfile
@@ -36,7 +37,7 @@ def fetch(url, headers=None):
             if exc.code != 403 or attempt:
                 raise RuntimeError(f'蒲公英请求失败（HTTP {exc.code}）：{url}') from exc
             time.sleep(1)
-        except (TimeoutError, URLError) as exc:
+        except (TimeoutError, URLError, ssl.SSLError) as exc:
             if attempt:
                 raise RuntimeError(f'蒲公英连接失败或超时：{url}；{type(exc).__name__}: {exc}') from exc
             time.sleep(1)
@@ -61,20 +62,25 @@ def install_url(build_key: str) -> str:
 def download(build_key: str, target: Path) -> Path:
     """Resume the public Pgyer APK download and reject incomplete archives."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists() and zipfile.is_zipfile(target):
-        return target
-    offset = target.stat().st_size if target.exists() else 0
-    headers = {}
-    if offset:
-        headers["Range"] = f"bytes={offset}-"
-    url = install_url(build_key)
-    with fetch(url, headers) as response:
-        append = offset and response.status == 206
-        with target.open("ab" if append else "wb") as output:
-            while chunk := response.read(1024 * 1024):
-                output.write(chunk)
-    if not zipfile.is_zipfile(target):
-        raise RuntimeError("APK download is incomplete; run the command again to resume it.")
+    if not (target.exists() and zipfile.is_zipfile(target)):
+        for attempt in range(3):
+            offset = target.stat().st_size if target.exists() else 0
+            headers = {"Range": f"bytes={offset}-"} if offset else {}
+            try:
+                # The install URL expires; obtain a fresh one on every retry.
+                with fetch(install_url(build_key), headers) as response:
+                    append = offset and response.status == 206
+                    with target.open("ab" if append else "wb") as output:
+                        while chunk := response.read(1024 * 1024):
+                            output.write(chunk)
+                if zipfile.is_zipfile(target):
+                    break
+            except (ssl.SSLError, TimeoutError, URLError, OSError) as exc:
+                if attempt == 2:
+                    raise RuntimeError(f'蒲公英 APK 下载中断，重试 3 次仍失败：{exc}') from exc
+            time.sleep(attempt + 1)
+        else:
+            raise RuntimeError('蒲公英 APK 下载不完整，自动续传 3 次后仍不是有效 APK。')
     with zipfile.ZipFile(target) as archive:
         if archive.testzip():
             raise RuntimeError("APK archive integrity check failed.")

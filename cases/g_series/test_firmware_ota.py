@@ -40,7 +40,8 @@ def _manual_update(android, firmware):
 def _startup_update(android, firmware, mandatory):
     FirmwareUpdatePage(android).dismiss_stale_startup_popup()
     before, target, direction = choose_target(android, firmware)
-    ensure_system_bluetooth_pairing(android)
+    if mandatory:
+        ensure_system_bluetooth_pairing(android)
     try:
         prepare_target(target["task_id"], mandatory=mandatory, model=target['model'])
         if not mandatory:
@@ -55,18 +56,18 @@ def _startup_update(android, firmware, mandatory):
             except WaitTimeout:
                 if not FirmwareUpdatePage(android).has_startup_popup():
                     raise
-            if not FirmwareUpdatePage(android).has_startup_popup():
-                # Reinstalling the APP can remove its system Bluetooth bond.
-                ensure_system_bluetooth_pairing(android)
         if not FirmwareUpdatePage(android).has_startup_popup():
             _restart_app(android)
         page = FirmwareUpdatePage(android)
         try:
             page.startup_popup(mandatory)
-        except AssertionError:
+        except AssertionError as exc:
             if mandatory:
                 raise
-            raise AssertionError("非强制升级弹窗未出现；请检查启动时弹窗证据。")
+            raise AssertionError(
+                f'非强制升级弹窗未出现：{target["model"]} 的 {firmware} 固件，'
+                f'当前 {before}、目标 {target["version"]}、后台任务 {target["task_id"]}；'
+                f'已重装 APP、登录并重新绑定。原检查结果：{exc}') from None
         def finish_notification():
             clear_target(target['task_id'])
             android.restart()

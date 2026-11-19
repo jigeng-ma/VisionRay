@@ -85,6 +85,8 @@ class GalleryPage:
         if len(status) > 1:
             raise AssertionError('待导入媒资通知匹配不唯一。')
         if status:
+            if 'connection failed' in status[0].text.lower():
+                raise AssertionError('APP 显示眼镜连接失败，媒资导入未完成；请检查蓝牙回连。')
             return status[0]
         cards = self.all('import_file')
         if len(cards) > 1:
@@ -123,6 +125,12 @@ class GalleryPage:
             return self.home_import_count()
         elif surface == 'gallery':
             self.open()
+            titles = [e.text.strip() for e in self.all('status_title_tv')]
+            if any('importing' in title.lower() for title in titles):
+                self.a.assert_wait(
+                    lambda: any('importing' in e.text.lower() for e in self.all('status_title_tv')),
+                    False, '前一批媒资导入进度仍未完成：' + ' | '.join(titles), 300)
+                self.open()
         else:
             raise ValueError('surface 仅支持 home 或 gallery。')
         return self.import_count()
@@ -164,6 +172,12 @@ class GalleryPage:
                 return 0
         elif surface == 'gallery':
             self.open()
+            titles = [e.text.strip() for e in self.all('status_title_tv')]
+            if any('importing' in title.lower() for title in titles):
+                self.a.assert_wait(
+                    lambda: any('importing' in e.text.lower() for e in self.all('status_title_tv')),
+                    False, '前一批媒资导入仍在进行：' + ' | '.join(titles), 300)
+                self.open()
         else:
             raise ValueError('surface 仅支持 home 或 gallery。')
         if not self.import_card():
@@ -315,9 +329,35 @@ class GalleryPage:
                 if self.a.context['config'].get('model') == 'Nova':
                     from .nova import accept_media_hotspot
                     accept_media_hotspot(self.a)
-            self.a.assert_wait(lambda: bool(self.all('status_title_tv')), False,
-                               '首页导入后待导入通知仍存在',
-                               max(1, timeout - (time.monotonic() - started)))
+            reconnect_attempted = False
+            reconnect_started = 0.0
+            def import_notice_remains():
+                nonlocal reconnect_attempted, reconnect_started
+                titles = [e.text.strip() for e in self.all('status_title_tv')]
+                if any('connection failed' in title.lower() for title in titles):
+                    if reconnect_attempted:
+                        if time.monotonic() - reconnect_started > 25:
+                            raise AssertionError('点击 Retry 后 APP 仍提示眼镜连接失败：' + ' | '.join(titles))
+                        return True
+                    retry = [e for e in self.all('status_action_btn')
+                             if e.is_enabled() and e.text.strip().lower() == 'retry']
+                    if len(retry) != 1:
+                        raise AssertionError('APP 提示眼镜连接失败，但未显示唯一 Retry 按钮：' + ' | '.join(titles))
+                    self.a.capture('import-connection-failed-before-retry')
+                    retry[0].click()
+                    reconnect_attempted = True
+                    reconnect_started = time.monotonic()
+                    self.a.log('import-connection-retry', {'surface': surface, 'status': titles})
+                return bool(titles)
+            try:
+                self.a.assert_wait(import_notice_remains, False,
+                                   '首页导入后待导入通知仍存在',
+                                   max(1, timeout - (time.monotonic() - started)))
+            except AssertionError as exc:
+                titles = [e.text.strip() for e in self.all('status_title_tv')]
+                progress = [e.text.strip() for e in self.all('status_progress_tv')]
+                self.a.capture('import-not-completed')
+                raise AssertionError(f'{exc}；结束时 APP 状态：{titles}，进度：{progress}。') from None
         else:
             self.a.assert_wait(lambda: bool(self.import_card()), False,
                                '空间页导入后待导入卡片仍存在', timeout)
@@ -364,9 +404,16 @@ class GalleryPage:
         if kind not in ('image', 'video'):
             raise ValueError('kind 仅支持 image 或 video。')
         self.open()
-        for item in self.media():
-            item.click()
-            self.a.wait(self.preview_ready, '媒体预览页', 12)
+        for index in range(len(self.media())):
+            for attempt in range(2):
+                self.media()[index].click()
+                try:
+                    self.a.wait(self.preview_ready, '媒体预览页', 12)
+                    break
+                except WaitTimeout:
+                    if attempt:
+                        raise
+                    self.a.log('gallery-preview-retry', {'index': index})
             is_video = bool(self.all('playerView') or self.all('play_btn'))
             if (kind == 'video') == is_video:
                 return
@@ -468,7 +515,7 @@ class GalleryPage:
         # 分享弹窗把预览缩小到约 1/6，首字母 V 偶尔会被压缩误读；保留 ``ionray`` 作为兜底关键标志。
         marker_found = 'vision' in compact or (label == 'system-share-sheet' and 'ionray' in compact)
         if video and not marker_found:
-            from PIL import ImageChops
+            from PIL import ImageChops, ImageOps
             # 浅色场景上的半透明白字会被普通 OCR 漏读。只保留低饱和度的
             # 高亮笔画，并在视频画面下半部逐带查找，避免依赖固定画幅。
             for top in (.56, .58, .6026, .62, .64, .66):
@@ -485,6 +532,23 @@ class GalleryPage:
                 if any(word in normalized for word in ('vision', 'ionray', 'nsray', 'nfsray')):
                     marker_found = True
                     break
+            if not marker_found:
+                # G7 的半透明灰字在浅色画面上 OCR 会把 VISIONRAY 读成
+                # VIRRNRAY。对视频左下角窄带增强对比度后，只接受 VI…RAY。
+                for top in (.595, .62, .63):
+                    crop = image.crop((0, int(height * top), int(width * .38),
+                                       int(height * (top + .035))))
+                    gray = ImageOps.autocontrast(ImageOps.grayscale(crop))
+                    for candidate_image in (gray, ImageOps.invert(gray)):
+                        candidate_image = candidate_image.resize((candidate_image.width * 3,
+                                                                   candidate_image.height * 3))
+                        candidate = pytesseract.image_to_string(candidate_image, config='--psm 7').lower()
+                        texts.append(candidate)
+                        if re.search(r'vi[a-z]{2,7}ray', re.sub(r'[^a-z]', '', candidate)):
+                            marker_found = True
+                            break
+                    if marker_found:
+                        break
         if not marker_found:
             self.a.capture(label + '-watermark-not-found')
             raise AssertionError(label + ' 未识别到 VisionRay 水印：' + ' | '.join(value.strip() for value in texts))
@@ -585,7 +649,9 @@ class GalleryPage:
             except WaitTimeout:
                 if attempt == 2:
                     raise
-        self.one('play_btn', '暂停后的播放按钮')
+        # 新版播放器底部控制栏使用 play_btn_small；旧版仍可能使用 play_btn。
+        if not (self.all('play_btn_small') or self.all('play_btn')):
+            raise AssertionError('播放器已上报暂停事件，但暂停后的播放按钮未显示。')
         self.a.log('video-play-pause', {'duration': duration, 'pause_tap': pause,
                                         'events': playing_events(started)})
 

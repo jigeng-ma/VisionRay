@@ -428,8 +428,16 @@ def _execute(root, source, mapping, selected, context, stop, emit, timeout):
                     if not appium_ready:
                         if (root / 'configs' / 'environment.json').is_file():
                             from .service import start as start_appium
+                            from .android import Android
                             emit('service', '正在检查 Appium 服务…')
                             start_appium(root)
+                            # 在运行首条用例前真正建立一次会话。仅检查 /status 无法发现
+                            # 已启动的 Appium 进程缺少 ANDROID_HOME 等环境变量。
+                            probe = Android(context)
+                            try:
+                                probe.connect()
+                            finally:
+                                probe.close()
                         appium_ready = True
                     connection.execute('UPDATE results SET status=? WHERE sheet=? AND id=?', ('RUNNING', *key))
                     connection.commit()

@@ -19,12 +19,13 @@ class SettingsPage:
         self.home.home()
         # 当前版本以首页 DP AI 卡片承载对话记录，旧版本则显示 AI Conversation History。
         labels = ('AI Conversation History', 'AI Chat History', 'AI Conversation', 'AI Chat', 'DP AI')
-        entry = next((self.home._labeled('tv_grid_title', label) for label in labels
-                      if any(e.is_displayed() and e.text == label for e in self.a.driver.find_elements(
-                          'id', self.package + ':id/tv_grid_title'))), None)
-        if not entry:
+        entries = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_grid_title')
+                   if e.is_displayed() and e.text in labels]
+        if not entries:
             raise TestBlocked('首页未找到 AI 对话记录入口。')
-        entry.click()
+        if len(entries) != 1:
+            raise AssertionError(f'AI 对话记录入口不唯一：{[e.text for e in entries]}。')
+        entries[0].click()
         setting = self.a.wait(lambda: next((e for e in self.a.driver.find_elements('xpath',
             f"//*[@package='{self.package}' and (contains(@resource-id, 'setting') or @content-desc='Settings')]")
             if e.is_displayed() and e.is_enabled()), None), 'AI 对话记录页右上角设置按钮', 12)

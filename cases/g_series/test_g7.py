@@ -1,5 +1,4 @@
 """NovaAPP-G7 冒烟表中的 G7 专属用例。"""
-import re
 import pytest
 
 from studio.errors import TestBlocked, WaitTimeout
@@ -154,75 +153,3 @@ VIDEO_VARIANTS = (
                          ids=[f'Cam_{number:03d}' for number in range(11, 36)])
 def test_g7_video_variant(android, width, height, fps, duration):
     _video(android, width, height, fps, duration, save_on_failure=True)
-
-
-def test_g7_all_video_combinations(android):
-    _bound_home(android)
-    def fresh_page():
-        try:
-            android.close()
-        except Exception:
-            pass
-        android.driver = None
-        android.connect()
-        return G7Page(android)
-
-    def driver_lost(error):
-        return any(marker in str(error) for marker in
-                   ('UiAutomator2 服务进程已退出', 'instrumentation process is not running'))
-
-    page = G7Page(android)
-    for attempt in range(2):
-        try:
-            page.capture()
-            specifications = page.option_texts(('Video Specs', 'Video Resolution', 'Video Specification', 'Video Format'))
-            break
-        except Exception as exc:
-            if not driver_lost(exc) or attempt:
-                raise
-            page = fresh_page()
-    assert specifications, '未读到视频规格选项。'
-    for specification in specifications:
-        size = re.search(r'(\d{3,4})\s*[x×*]\s*(\d{3,4})', specification, re.I)
-        if size:
-            width, height = map(int, size.groups())
-        elif '2.5k' in specification.lower():
-            width, height = 2560, 1920
-        else:
-            raise AssertionError(f'无法从视频规格读取分辨率：{specification}。')
-        rate = re.search(r'(\d+)\s*fps', specification, re.I)
-        if not rate:
-            raise AssertionError(f'无法从视频规格读取帧率：{specification}。')
-        for attempt in range(2):
-            try:
-                page.capture()
-                page.choose_option(('Video Specs', 'Video Resolution', 'Video Specification', 'Video Format'),
-                                   '^' + re.escape(specification) + '$')
-                durations = page.option_texts(('Video Duration', 'Recording Duration'))
-                break
-            except Exception as exc:
-                if not driver_lost(exc) or attempt:
-                    raise
-                page = fresh_page()
-        assert durations, f'{specification} 未提供任何录像时长。'
-        android.log('g7-video-available-durations', {'specification': specification,
-                                                    'durations': durations})
-        for label in durations:
-            seconds = G7Page.seconds(label)
-            for attempt in range(2):
-                try:
-                    page.capture()
-                    page.choose_option(('Video Specs', 'Video Resolution', 'Video Specification', 'Video Format'),
-                                       '^' + re.escape(specification) + '$')
-                    page.choose_option(('Video Duration', 'Recording Duration'), '^' + re.escape(label) + '$')
-                    page.record_and_check(seconds, width, height, int(rate.group(1)))
-                    break
-                except Exception as exc:
-                    if not driver_lost(exc) or attempt:
-                        raise
-                    android.log('g7-driver-reconnect', {'specification': specification,
-                                                        'duration': label})
-                    page = fresh_page()
-            android.log('g7-video-combination-passed', {'specification': specification,
-                                                        'duration': label})
-            page = fresh_page()
