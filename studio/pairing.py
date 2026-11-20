@@ -23,7 +23,7 @@ class PairingPage:
         self.options = android.context['config']['pairing']
         self._binding_failed_seen = False
         self.require_model_list = False
-        self.clear_bound_g5 = False
+        self.clear_bound_model = False
 
     def _swipe_models(self, upward):
         try:
@@ -257,7 +257,7 @@ class PairingPage:
             # 正常解绑流程，再重新识别 Add Device 首页。
             from .home_device import HomeDevicePage
             page = HomeDevicePage(a)
-            if self.clear_bound_g5:
+            if self.clear_bound_model:
                 remaining = True
                 removed = set()
                 while remaining:
@@ -265,7 +265,8 @@ class PairingPage:
                     names = page._bound_names()
                     if len(names) != 1 or names[0] in removed or not re.fullmatch(
                             a.context['config']['name_pattern'], names[0], re.I):
-                        raise TestBlocked(f'配对前无法安全清理当前 G5 绑定：首页显示 {names}。')
+                        model = a.context['config']['model']
+                        raise TestBlocked(f'配对前无法安全清理当前 {model} 绑定：首页显示 {names}。')
                     removed.add(names[0])
                     remaining = page.unbind(require_empty=False, allow_discovery=True)
             elif a.context['config'].get('model') == 'G5':

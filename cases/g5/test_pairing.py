@@ -9,14 +9,14 @@ from studio.errors import TestBlocked, WaitTimeout
 from studio.pairing import PairingPage, discovery_panel
 
 
-def _pair_flow_model(android, request, model_label):
+def pair_flow_model(android, request, model_label):
     try:
         pairing = PairingPage(android)
         original = pairing.options.copy()
         try:
             pairing.options.update(model_label=model_label, skip_tutorial=False)
             pairing.require_model_list = True
-            pairing.clear_bound_g5 = True
+            pairing.clear_bound_model = True
             pairing.run()
             assert pairing.on_tutorial(), f'{model_label} 绑定后未进入使用引导。'
         finally:
@@ -28,16 +28,16 @@ def _pair_flow_model(android, request, model_label):
 
 
 def test_pair_flow_echo_pilot(android, request):
-    _pair_flow_model(android, request, 'Flow Echo Pilot')
+    pair_flow_model(android, request, 'Flow Echo Pilot')
 
 
 def test_pair_flow_echo_crystal(android, request):
-    _pair_flow_model(android, request, 'Flow Echo Crystal')
+    pair_flow_model(android, request, 'Flow Echo Crystal')
 
 
 def _nearby(android):
     pairing = PairingPage(android)
-    pairing.clear_bound_g5 = True
+    pairing.clear_bound_model = True
     pairing.prepare_model_search()
     if discovery_panel(android) is None:
         android.log('nearby-reopen', '重启 APP 后重新检查附近设备入口')
@@ -103,11 +103,13 @@ def test_nearby_swipe_pair(android, record_property):
         name = android.context['glasses_name']
         def multiple_cards():
             state = _current_card(android)
-            return state if state and len(state[1]) >= 2 else None
+            return state if state and name in state[1] and len(state[1]) >= 2 else None
         try:
-            current, candidates = android.wait(multiple_cards, '附近设备至少两张卡片可见', 25)
+            current, candidates = android.wait(multiple_cards, f'附近设备显示目标 {name} 和另一台眼镜', 25)
         except WaitTimeout as exc:
-            raise TestBlocked('附近设备中未发现至少两台眼镜。') from exc
+            state = _current_card(android)
+            observed = '、'.join(sorted(state[1])) if state else '无'
+            raise TestBlocked(f'附近设备未同时显示目标 {name} 和另一台眼镜。已发现：{observed}。') from exc
         if current == name:
             alternate = sorted(candidates - {name})[0]
             page.center_discovered(alternate)
@@ -121,9 +123,9 @@ def test_nearby_swipe_pair(android, record_property):
 
 def test_nearby_card_cancel(android, record_property):
     def check_and_cancel(page):
-        current, _ = android.wait(lambda: _current_card(android), '附近设备当前卡片', 15)
-        assert re.fullmatch(android.context['config']['name_pattern'], current, re.I), f'当前卡片不是 G5：{current}。'
-        _check_card(page, current)
+        name = android.context['glasses_name']
+        page.center_discovered(name)
+        _check_card(page, name)
         page.cancel_discovery()
         android.capture('nearby-device-cancelled')
     _run_nearby(android, record_property, check_and_cancel)

@@ -23,6 +23,11 @@ def prepare_business(android, *, force=False):
     if not fresh:
         return
     android.log('business-preparation', '恢复登录、目标绑定并跳过新手引导')
+    # 解绑成功后 APP 可能自动展示附近设备卡片。它是正常未绑定状态，
+    # 先关闭模态卡片再恢复账号导航，避免在卡片上等待底部导航超时。
+    if discovery_panel(android) is not None:
+        PairingPage(android).cancel_discovery()
+        android.log('business-preparation', '关闭解绑后附近设备卡片，继续恢复目标绑定')
     if auth.has('tv_login_by_email'):
         auth.login_for_pairing()
     else:

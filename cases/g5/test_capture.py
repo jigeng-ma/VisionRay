@@ -316,4 +316,4 @@ def verify_video_auto_stop(android, minutes, record_property, target, orientatio
 @pytest.mark.parametrize('minutes', [1, 3, 5, 7, 10], ids=lambda minutes: f'{minutes}min')
 def test_video_auto_stop(android, minutes, record_property, tmp_path):
     target = Path(os.environ.get('GLASSES_EVIDENCE_DIR') or tmp_path)
-    verify_video_auto_stop(android, minutes, record_property, target, ('Portrait',))
+    verify_video_auto_stop(android, minutes, record_property, target, ('Landscape', 'Portrait'))

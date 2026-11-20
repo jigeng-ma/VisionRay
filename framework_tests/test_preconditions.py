@@ -46,3 +46,19 @@ def test_existing_business_page_is_left_untouched():
         prepare_business(android)
         auth.return_value.registered.assert_not_called()
         home.assert_not_called()
+
+
+def test_unbound_discovery_card_is_closed_before_account_navigation():
+    android = Mock()
+    android.find.return_value = False
+    events = []
+    with patch('studio.auth.AuthPage') as auth, \
+         patch('studio.home_device.HomeDevicePage'), \
+         patch('studio.pairing.PairingPage') as pairing, \
+         patch('studio.pairing.discovery_panel', return_value=Mock()):
+        auth.return_value.has.return_value = False
+        auth.return_value.registered.side_effect = lambda: events.append('account')
+        pairing.return_value.options = {'skip_tutorial': False, 'require_pairing_prompt': True}
+        pairing.return_value.cancel_discovery.side_effect = lambda: events.append('cancel')
+        prepare_business(android)
+    assert events == ['cancel', 'account']

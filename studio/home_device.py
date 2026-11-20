@@ -45,8 +45,10 @@ class HomeDevicePage:
                 self.a.click('pair.skip_confirm')
             elif self.a.find('pair.tutorial_begin'):
                 self.a.click('pair.skip')
-                self.a.element('pair.skip_title')
-                self.a.click('pair.skip_confirm')
+                self.a.wait(lambda: self.a.find('pair.skip_title') or self.a.find('pair.home_title'),
+                            '跳过引导后的确认框或首页', 10)
+                if self.a.find('pair.skip_title'):
+                    self.a.click('pair.skip_confirm')
             elif self.a.find('pair.add'):
                 from .pairing import PairingPage
                 pairing = PairingPage(self.a)
@@ -226,7 +228,7 @@ class HomeDevicePage:
                     return None
                 if a.find('pair.add'):
                     return 'empty'
-                if allow_discovery:
+                if allow_discovery or a.context['config'].get('model') == 'G5':
                     from .pairing import discovery_panel
                     if discovery_panel(a) is not None:
                         return 'discovery'
@@ -236,7 +238,8 @@ class HomeDevicePage:
                         return 'remaining'
                 return None
 
-            label = '解绑后 Add Device 页面状态' if require_empty else '解绑后设备列表更新'
+            label = ('解绑后未绑定首页或附近设备配对卡片' if require_empty
+                     else '解绑后设备列表更新')
             return a.wait(destination, label, 20) == 'remaining'
 
         # 上轮中断在确认框时，先完成已明确打开的解绑动作，避免首页导航被模态框拦截。

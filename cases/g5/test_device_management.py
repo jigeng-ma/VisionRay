@@ -110,7 +110,7 @@ class DeviceManagement(HomeDevicePage):
         model = self.one('tvTag', card).text.strip()
         identifier = self.one('tvSn', card).text.strip()
         assert model, f'{name} 未显示型号。'
-        if re.fullmatch(self.a.context['config']['name_pattern'], name, re.I):
+        if re.fullmatch(r'DPVR\s+G5[-_]\S+', name, re.I):
             assert model in G5_MODELS, f'{name} 显示了错误的 G5 型号：{model}。'
         legacy = re.fullmatch(r'DPVR\s+(G1|G3|G6)[-_]\S+', name, re.I)
         if legacy:
@@ -258,7 +258,7 @@ def _pending_unpair_actions(page):
         PairingPage(a).cancel_discovery()
     cards = page.start()
     if set(cards) != {page.name}:
-        raise TestBlocked(f'本用例需要仅绑定目标 G5，当前列表：{list(cards)}。')
+        raise TestBlocked(f'本用例需要仅绑定目标 {page.name}，当前列表：{list(cards)}。')
     a.driver.press_keycode(4)
     page.select_home(page.name)
     gallery = GalleryPage(a)
@@ -276,10 +276,13 @@ def test_g5_pending_media_unpair(devices):
         unpair, _ = _pending_unpair_actions(page)
         unpair.click()
         a = page.a
-        a.wait(lambda: a.find('pair.add') or discovery_panel(a), '解绑后进入未绑定界面', 20)
-        if discovery_panel(a) is not None:
-            PairingPage(a).cancel_discovery()
-        a.wait(lambda: a.find('pair.add') and not page._bound_names(), '未绑定设备首页', 15)
+        def unbound_home():
+            if discovery_panel(a) is not None:
+                PairingPage(a).cancel_discovery()
+                return False
+            return a.find('pair.add') and not page._bound_names()
+
+        a.wait(unbound_home, '未绑定设备首页', 25)
         a.capture('unpair-with-pending-media-home')
     run(devices, check)
 
