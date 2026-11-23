@@ -10,7 +10,7 @@ class BindingReturnedToModels(AssertionError):
 
 def discovery_panel(android):
     config = android.context['config']
-    if config.get('model') != 'G5':
+    if config.get('model') not in {'G5', 'G7'}:
         return None
     panels = [item for item in android.driver.find_elements('id', config['package'] + ':id/discovery_panel')
               if item.is_displayed()]
@@ -123,19 +123,39 @@ class PairingPage:
         if destination == 'login':
             from .auth import AuthPage
             AuthPage(a).login_for_pairing()
-            if discovery_panel(a) is not None or a.find('pair.models_title'):
+
+            def return_from_login():
+                if discovery_panel(a) is not None or a.find('pair.models_title'):
+                    return 'pairing'
+                if a.find('pair.add'):
+                    return 'home'
+                tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon')
+                        if e.is_displayed()]
+                if tabs:
+                    tabs[0].click()
+                    return 'home'
+                return None
+
+            # 登录和首次授权会重绘导航。把定位和点击放在同一个等待里，
+            # 元素失效时由 Android.wait 重新读取页面。
+            if a.wait(return_from_login, '登录后恢复首页或配对页', 12) == 'pairing':
                 return
-            tabs = [e for e in a.driver.find_elements('id', package + ':id/tabIcon') if e.is_displayed()]
-            if not tabs:
-                raise TestBlocked('登录后未找到首页导航，无法返回 Add Device。')
-            tabs[0].click()
-            if a.find('pair.home_title') and not a.find('pair.add'):
+            destination = a.wait(lambda: 'pairing' if discovery_panel(a) is not None or a.find('pair.models_title')
+                                 else 'add' if a.find('pair.add') else 'bound' if a.find('pair.home_title') else None,
+                                 '登录后返回 Add Device 或已绑定首页', 12)
+            if destination == 'pairing':
+                return
+            if destination == 'bound':
                 # 登录账号可能恢复云端已绑定设备；本用例需要从空设备页重新配对。
                 from .home_device import HomeDevicePage
                 HomeDevicePage(a).unbind()
-            a.wait(lambda: a.find('pair.add'), '登录后返回 Add Device 首页', 12)
+                a.wait(lambda: a.find('pair.add'), '登录后返回 Add Device 首页', 12)
             a.click('pair.add')
-        a.element('pair.models_title', 12)
+        if a.context['config'].get('model') == 'G7':
+            a.wait(lambda: discovery_panel(a) is not None or a.find('pair.models_title'),
+                   '附近设备卡片或型号列表', 12)
+        else:
+            a.element('pair.models_title', 12)
 
     def ensure_english_from_home(self):
         """新手机随系统语言显示中文时，先通过 APP 设置切到英文。"""
@@ -391,7 +411,7 @@ class PairingPage:
         finally:
             a.popups.pairing_active = False
 
-    def center_discovered(self, name):
+    def center_discovered(self, name, *, alternate=False):
         a = self.a
         package = a.context['config']['package']
         moves = 0
@@ -404,16 +424,17 @@ class PairingPage:
                 return None
             carousel = panel.find_elements('id', package + ':id/device_carousel')
             names = [item for item in panel.find_elements('id', package + ':id/device_name')
-                     if item.is_displayed() and item.text == name]
-            if len(names) > 1:
+                     if item.is_displayed() and item.text and (item.text != name if alternate else item.text == name)]
+            if not alternate and len(names) > 1:
                 raise TestBlocked(f'附近设备列表中有多台同名眼镜：{name}。')
             if len(carousel) != 1:
                 return None
             rect = carousel[0].rect
             center = rect['x'] + rect['width'] / 2
             if names:
-                position = names[0].rect
-                offset = position['x'] + position['width'] / 2 - center
+                offsets = [position['x'] + position['width'] / 2 - center
+                           for position in (item.rect for item in names)]
+                offset = min(offsets, key=abs)
                 if abs(offset) < rect['width'] * .12:
                     return panel
             if moves < 10 and time.monotonic() - last_move >= 1:
@@ -427,7 +448,8 @@ class PairingPage:
                 a.log('pair-discovery-swipe', {'direction': 'left' if leftward else 'right', 'target': name})
             return None
 
-        return a.wait(centered_target, '搜索目标眼镜 ' + name, self.options['search_timeout'])
+        label = f'搜索 {name} 以外的附近眼镜' if alternate else '搜索目标眼镜 ' + name
+        return a.wait(centered_target, label, self.options['search_timeout'])
 
     def bind_discovered(self, before_pair=None):
         a = self.a
@@ -511,7 +533,7 @@ class PairingPage:
         a = self.a
         if a.driver.current_activity != self.options['home_activity'] or not a.find('pair.home_title'):
             return False
-        if a.context['config'].get('model') == 'G5':
+        if a.context['config'].get('model') in {'G5', 'G7'}:
             from .home_device import HomeDevicePage
             return HomeDevicePage(a)._bound_names().count(a.context['glasses_name']) == 1
         matches = [e for e in a.driver.find_elements('id', self.options['device_name_id'])

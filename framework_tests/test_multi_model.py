@@ -76,7 +76,10 @@ class MultiModelTests(unittest.TestCase):
                          g7[('G09_固件更新', 'F-OTA_002')]['node'])
         self.assertTrue(case_applies(g7[('G7', 'F-OTA_002')],
                                      {'product': 'G7', 'model': 'G7'}))
-        self.assertEqual(g7[('G7', 'PAIR_004')]['automation_id'], 'VisionRay_0145')
+        self.assertEqual(g7[('G7', 'PAIR_001')]['automation_id'], 'VisionRay_0145')
+        self.assertEqual(g7[('G7', 'PAIR_002')]['automation_id'], 'VisionRay_0146')
+        self.assertTrue(g7[('G7', 'PAIR_004')]['node'].endswith('::test_nearby_swipe_pair'))
+        self.assertEqual(g7[('G01_配对', 'PAIR_004')]['automation_id'], 'VisionRay_0145')
         self.assertIn(('APP_注册登录', 'C-L_005'), g7)
         g1 = registry(ROOT, 'G系列')
         self.assertIn(('G1_G3_G6', 'F-OTA_002'), g1)

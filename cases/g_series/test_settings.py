@@ -214,7 +214,14 @@ def test_system_single_unbind(android):
     def action():
         HomeDevicePage(android).unbind()
         # 已核对解绑后的 Add Device 页面；恢复本轮目标眼镜供后续模块使用。
-        from studio.pairing import PairingPage
+        from studio.pairing import PairingPage, discovery_panel
+        if android.context['config'].get('model') == 'G7':
+            if discovery_panel(android) is not None:
+                PairingPage(android).cancel_discovery()
+            android.element('pair.add')
+            android.capture('unbound-add-device-home')
+            android.log('pair-cooldown', '解绑后等待 60 秒再搜索')
+            time.sleep(60)
         pairing = PairingPage(android)
         original_skip = pairing.options.get('skip_tutorial', False)
         original_prompt = pairing.options.get('require_pairing_prompt', True)

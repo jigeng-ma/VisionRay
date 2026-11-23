@@ -7,6 +7,7 @@ def needs_business_preparation(nodeid):
     filename = PurePosixPath(path).name
     return not (filename in {'test_auth.py', 'test_pairing.py',
                              'test_pairing_cards.py'}
+                or name == 'test_nearby_card_cancel'
                 or 'pair' in name.lower().replace('unpair', '')
                 or 'bind' in name.lower().replace('unbind', ''))
 

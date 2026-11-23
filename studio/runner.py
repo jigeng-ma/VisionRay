@@ -172,6 +172,7 @@ def registry(root, product=None):
     if product in ('G系列', 'G7'):
         aliases = {'G00_登录注册': 'APP_注册登录'}
         model_sheet = 'G7' if product == 'G7' else 'G1_G3_G6'
+        explicit = {key for key in found if key[0] == model_sheet}
         for (sheet, case_id), item in list(found.items()):
             if sheet == '基础项':
                 continue
@@ -183,6 +184,8 @@ def registry(root, product=None):
                 elif product == 'G系列' and item.get('models') == ['G7']:
                     continue
                 target_sheet = model_sheet
+            if (target_sheet, case_id) in explicit:
+                continue
             alias = dict(item, sheet=target_sheet)
             if target_sheet in ('G1_G3_G6', 'G7'):
                 # 合并 Sheet 的行顺序就是执行顺序；旧模块的优先级不能跨模块混排。

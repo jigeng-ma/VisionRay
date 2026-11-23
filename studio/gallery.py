@@ -66,7 +66,8 @@ class GalleryPage:
         self.a.ensure_foreground()
         # 与首页类用例保持一致：未绑定时先执行可恢复的配对准备。
         from .home_device import HomeDevicePage
-        HomeDevicePage(self.a).home()
+        home = HomeDevicePage(self.a)
+        home.home()
         tabs = []
         for _ in range(4):
             tabs = [e for e in self.all('tabIcon') if e.is_enabled()]
@@ -77,6 +78,10 @@ class GalleryPage:
             raise TestBlocked('未显示首页入口，请先完成首次引导。')
         tabs[0].click()
         self.one('devices_title', '首页')
+        if self.a.context['config'].get('model') == 'G7' and not self.all('status_title_tv'):
+            # G7 从设置返回后会保留首页滚动位置。先恢复顶部，再判断是否有待导入媒资。
+            self.a.wait(lambda: bool(self.all('status_title_tv')) or not home.scroll_home('up', .9),
+                        '恢复 G7 首页待导入通知区域', 12)
         return self
 
     def import_card(self):

@@ -15,7 +15,8 @@ class G7RegistrationTests(unittest.TestCase):
         expected = {'PAIR_004', 'PAIR_005', 'H-DM_086', 'H-DM_097', 'AI_079',
                     'Cam_008', 'Cam_009', 'Cam_010'}
         entries = registry(ROOT, 'G7')
-        cases = [item for item in entries.values() if item['id'] in expected]
+        cases = [item for (sheet, _), item in entries.items()
+                 if sheet == 'G7' and item['id'] in expected]
         self.assertEqual({item['id'] for item in cases}, expected)
         self.assertEqual(len({item['automation_id'] for item in cases}), len(expected))
         self.assertTrue(all(case_applies(item, {'product': 'G7', 'model': 'G7'})

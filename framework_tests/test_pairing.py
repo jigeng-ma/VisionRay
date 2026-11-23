@@ -101,6 +101,19 @@ class PopupTests(unittest.TestCase):
             self.guard.handle()
         self.button.click.assert_not_called()
 
+    def test_pixel_pair_dialog_clicks_button_container_for_known_device(self):
+        self.a.driver.page_source = xml('com.android.settings', ['Pair with DPVR G1_13E6?', 'Pair'])
+        container = Mock()
+        container.get_attribute.return_value = 'true'
+        container.find_elements.return_value = [self.button]
+        self.a.driver.find_elements.side_effect = lambda _, resource: (
+            [container] if resource == 'com.android.settings:id/positive_button_container' else [])
+
+        self.assertTrue(self.guard.handle())
+        container.click.assert_called_once_with()
+        self.button.click.assert_not_called()
+        self.assertEqual(self.guard.pairing_accepted, 1)
+
     def test_wrong_device_or_prefix_collision_never_accepted(self):
         self.guard.pairing_active=True
         for name in ['DPVR G1_9999','DPVR G1_13E60']:
@@ -220,7 +233,7 @@ class ScrollTests(unittest.TestCase):
     def test_add_device_login_redirect_restores_account_before_models(self):
         a=Mock();a.context={'config':{'package':'app','pairing':{'model_label_id':'label'}}}
         a.find.return_value = False
-        a.wait.side_effect=['login', Mock(), Mock()]
+        a.wait.side_effect=['login', 'home', 'add', Mock()]
         a.driver.find_elements.return_value=[Mock(text=name, is_displayed=Mock(return_value=True))
                                              for name in ('DPVR G1', 'DPVR G3', 'DPVR G6')]
         with patch('studio.auth.AuthPage') as auth, patch.object(
@@ -229,18 +242,30 @@ class ScrollTests(unittest.TestCase):
         auth.return_value.login_for_pairing.assert_called_once_with()
         self.assertEqual(a.click.call_args_list[:2], [unittest.mock.call('pair.add')] * 2)
 
-    def test_g7_login_redirect_restores_account_before_flow_pro_models(self):
+    def test_g7_login_redirect_retries_stale_home_tab(self):
         a = Mock()
-        a.find.return_value = False
-        a.context = {'config': {'product': 'G7', 'package': 'app',
+        a.context = {'config': {'product': 'G7', 'model': 'G7', 'package': 'app',
                                 'pairing': {'model_label': 'Flow Pro Pilot'}}}
-        a.wait.side_effect = ['login', Mock()]
-        a.driver.find_elements.return_value = [Mock(is_displayed=Mock(return_value=True))]
-        with patch('studio.auth.AuthPage') as auth:
+        a.popups.handle.return_value = False
+        stale = Mock(is_displayed=Mock(side_effect=StaleElementReferenceException('tab was replaced')))
+        home = Mock(is_displayed=Mock(return_value=True))
+        tabs = iter([[stale], [home]])
+        a.driver.find_elements.side_effect = lambda _, resource: next(tabs) if resource.endswith('/tabIcon') else []
+        a.find.side_effect = lambda key: ((key == 'pair.add' and home.click.called and a.click.call_count == 1)
+                                         or (key == 'pair.models_title' and a.click.call_count == 2))
+
+        def wait(predicate, label, timeout):
+            if a.wait.call_count == 1:
+                return 'login'
+            return Android.wait(a, predicate, label, timeout)
+
+        a.wait.side_effect = wait
+        with patch('studio.auth.AuthPage') as auth, patch('studio.android.time.sleep'):
             PairingPage(a).open_model_list()
         auth.return_value.login_for_pairing.assert_called_once_with()
         self.assertEqual(a.click.call_args_list, [unittest.mock.call('pair.add')] * 2)
-        a.element.assert_called_once_with('pair.models_title', 12)
+        stale.click.assert_not_called()
+        home.click.assert_called_once_with()
 
     def test_g7_prepare_search_opens_models_with_login_precondition(self):
         a = Mock()

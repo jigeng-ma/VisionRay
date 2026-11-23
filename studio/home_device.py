@@ -24,9 +24,9 @@ class HomeDevicePage:
                     and node.get('displayed') != 'false' and node.get('text', '').strip()]
 
         names = texts('tv_device_name')
-        if names or self.a.context['config'].get('model') != 'G5':
+        if names or self.a.context['config'].get('model') not in {'G5', 'G7'}:
             return names
-        # 1.2.52 的 G5 首页将当前眼镜名称直接放进标题栏。
+        # 1.2.52 的 G5 和 G7 首页会将当前眼镜名称直接放进标题栏。
         known = {self.name, *(item['glasses_name'] for item in self.a.context.get('glasses_inventory', []))}
         return [title for title in texts('devices_title') if title in known or re.fullmatch(
             r'(?:DPVR\s+G(?:1|3|5|6|7)[-_]\S+|(?:DPVR\s+|Flow\s+)?Nova(?:[\s_-].+)?)', title, re.I)]
@@ -113,7 +113,15 @@ class HomeDevicePage:
                     'xpath', f"//*[@package='{self.package}' and @text='{error}']")):
                 raise TestBlocked(f'APP 显示目标眼镜 {self.name} 连接失败，Retry 后再次出现失败提示。')
 
-    def _click_labeled(self, resource, labels):
+    def scroll_home(self, direction, percent):
+        lists = [e for e in self.a.driver.find_elements('id', self.package + ':id/recyclerView')
+                 if e.is_displayed() and e.get_attribute('scrollable') == 'true']
+        if len(lists) != 1:
+            return None
+        return self.a.driver.execute_script('mobile: scrollGesture', {
+            'elementId': lists[0].id, 'direction': direction, 'percent': percent})
+
+    def _click_labeled(self, resource, labels, *, scroll_home=False):
         labels = (labels,) if isinstance(labels, str) else labels
         def click():
             found = [e for e in self.a.driver.find_elements('id', self.package + ':id/' + resource)
@@ -121,6 +129,8 @@ class HomeDevicePage:
             if len(found) > 1:
                 raise AssertionError(f'入口不唯一：{labels}（{resource}），找到 {len(found)} 项。')
             if not found:
+                if scroll_home:
+                    self.scroll_home('down', .7)
                 return False
             found[0].click()
             return True
@@ -133,7 +143,8 @@ class HomeDevicePage:
         self.home(require_target=require_target)
         # 不同 APP 版本首页显示 System 或 System Settings，详情页仍叫 System Settings。
         if label == 'System Settings':
-            self._click_labeled('tv_list_title', ('System', 'System Settings'))
+            self._click_labeled('tv_list_title', ('System', 'System Settings'),
+                                scroll_home=self.a.context['config'].get('model') == 'G7')
         else:
             self._click_labeled('tv_list_title', label)
         self.a.log('click-setting', label)
@@ -143,8 +154,14 @@ class HomeDevicePage:
 
     def connected(self):
         self.home()
+        restore_scroll = self.a.context['config'].get('model') == 'G7'
+
         def battery():
+            nonlocal restore_scroll
             found = [e for e in self.a.driver.find_elements('id', self.package + ':id/tv_battery_percent') if e.is_displayed()]
+            # 从 System Settings 返回时，G7 首页会保留滚动位置，电量可能在屏幕外。
+            if not found and restore_scroll:
+                restore_scroll = self.scroll_home('up', .9) is not False
             return found[0] if len(found) == 1 and found[0].text.strip() not in ('', '-') else None
         value = self.a.wait(battery, '等待眼镜重连并显示电量', 35)
         self.a.log('glasses-battery', value.text)
@@ -228,7 +245,7 @@ class HomeDevicePage:
                     return None
                 if a.find('pair.add'):
                     return 'empty'
-                if allow_discovery or a.context['config'].get('model') == 'G5':
+                if allow_discovery or a.context['config'].get('model') in {'G5', 'G7'}:
                     from .pairing import discovery_panel
                     if discovery_panel(a) is not None:
                         return 'discovery'

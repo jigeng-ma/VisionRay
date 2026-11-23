@@ -137,7 +137,7 @@
     "node": "cases/g_series/test_home_device.py::test_visual_search",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 180,
+    "timeout_seconds": 360,
     "automation_id": "VisionRay_0007"
   },
   {
@@ -947,7 +947,7 @@
     "node": "cases/g_series/test_settings.py::test_system_single_unbind",
     "requires": [],
     "glasses_adb_required": false,
-    "timeout_seconds": 180
+    "timeout_seconds": 360
   },
   {
     "sheet": "G08_系统设置",
@@ -1146,6 +1146,22 @@
   {"sheet": "基础项", "id": "NF_007", "automation_id": "VisionRay_0139", "node": "cases/g_series/test_foundation.py::test_system_language_english", "requires": [], "glasses_adb_required": false, "timeout_seconds": 900, "execution_order": 70},
   {"sheet": "基础项", "id": "NF_008", "automation_id": "VisionRay_0140", "node": "cases/g_series/test_foundation.py::test_time_format_12", "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300, "execution_order": 80},
   {"sheet": "基础项", "id": "NF_009", "automation_id": "VisionRay_0141", "node": "cases/g_series/test_foundation.py::test_time_format_24", "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300, "execution_order": 90},
+  {"sheet": "G7", "id": "H-DM_004", "automation_id": "VisionRay_0227", "node": "cases/g_series/test_g7_smoke_reconnect.py::test_background_bluetooth_reconnect", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G7", "id": "H-DM_007", "automation_id": "VisionRay_0228", "node": "cases/g_series/test_g7_smoke_reconnect.py::test_reconnect_after_switch_and_restart", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 720},
+  {"sheet": "G7", "id": "H-DM_025", "automation_id": "VisionRay_0229", "node": "cases/g_series/test_g7_smoke_devices.py::test_g7_device_list", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 720},
+  {"sheet": "G7", "id": "H-DM_111", "automation_id": "VisionRay_0235", "node": "cases/g_series/test_g7_phone_assistant.py::test_g7_phone_assistant_card", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 120},
+  {"sheet": "G7", "id": "H-DM_113", "automation_id": "VisionRay_0236", "node": "cases/g_series/test_g7_phone_assistant.py::test_g7_phone_assistant_guide", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 120},
+  {"sheet": "G7", "id": "H-DM_115", "automation_id": "VisionRay_0237", "node": "cases/g_series/test_g7_phone_assistant.py::test_g7_phone_assistant_back", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 120},
+  {"sheet": "G7", "id": "H-DM_030", "automation_id": "VisionRay_0230", "node": "cases/g_series/test_g7_smoke_devices.py::test_g7_switch_bound_device", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 720},
+  {"sheet": "G7", "id": "Space_002", "automation_id": "VisionRay_0231", "node": "cases/g_series/test_g7_smoke_mixed_download.py::test_g7_mixed_download", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 1800},
+  {"sheet": "G7", "id": "SS_005", "automation_id": "VisionRay_0103", "node": "cases/g_series/test_g7_smoke_devices.py::test_g7_unbind_one_of_multiple_devices", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 720},
+  {"sheet": "G7", "id": "SS_006", "automation_id": "VisionRay_0225", "node": "cases/g_series/test_g7_smoke_devices.py::test_g7_pending_media_unpair", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G7", "id": "SS_007", "automation_id": "VisionRay_0226", "node": "cases/g_series/test_g7_smoke_devices.py::test_g7_pending_media_import", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G7", "id": "PAIR_003", "automation_id": "VisionRay_0232", "node": "cases/g_series/test_g7.py::test_nearby_card_pair", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G7", "id": "PAIR_004", "automation_id": "VisionRay_0233", "node": "cases/g_series/test_g7.py::test_nearby_swipe_pair", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G7", "id": "PAIR_005", "automation_id": "VisionRay_0234", "node": "cases/g_series/test_g7.py::test_nearby_card_cancel", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 420},
+  {"sheet": "G7", "id": "PAIR_001", "automation_id": "VisionRay_0145", "node": "cases/g_series/test_g7.py::test_pair_flow_pro_pilot", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
+  {"sheet": "G7", "id": "PAIR_002", "automation_id": "VisionRay_0146", "node": "cases/g_series/test_g7.py::test_pair_flow_pro_crystal", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
   {"sheet": "G01_配对", "id": "PAIR_004", "automation_id": "VisionRay_0145", "node": "cases/g_series/test_g7.py::test_pair_flow_pro_pilot", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
   {"sheet": "G01_配对", "id": "PAIR_005", "automation_id": "VisionRay_0146", "node": "cases/g_series/test_g7.py::test_pair_flow_pro_crystal", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},
   {"sheet": "G03_首页+设备管理", "id": "H-DM_086", "automation_id": "VisionRay_0147", "node": "cases/g_series/test_g7.py::test_g7_device_settings", "models": ["G7"], "requires": ["pairing"], "glasses_adb_required": false, "timeout_seconds": 300},

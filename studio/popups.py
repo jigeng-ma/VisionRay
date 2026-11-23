@@ -140,6 +140,17 @@ class PopupGuard:
                                if e.is_displayed() and e.is_enabled() and e.text in ('Pair', '配对')]
                     if buttons:
                         break
+                if not buttons:
+                    # Pixel 把 Pair 文案放在不可点击的子视图中，实际动作由父按钮处理。
+                    package_id = 'com.android.settings:id/'
+                    for container in a.driver.find_elements('id', package_id + 'positive_button_container'):
+                        if not (container.is_displayed() and container.is_enabled()
+                                and container.get_attribute('clickable') == 'true'):
+                            continue
+                        labels = [label for label in container.find_elements('id', package_id + 'positive_button_text')
+                                  if label.is_displayed() and label.is_enabled()]
+                        if len(labels) == 1 and labels[0].text in ('Pair', '配对'):
+                            buttons.append(container)
             else:
                 buttons = [e for e in a.driver.find_elements(spec['by'], spec['value'])
                            if e.is_displayed() and e.is_enabled()]
